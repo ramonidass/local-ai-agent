@@ -22,6 +22,8 @@ Volume=%h/agent/data:/out:z
 Volume=%h/agent/state/email:/email:ro,z
 Environment=CAL_DIR=/calendar EXTRA_ICS_DIR=/extra TODO_FILES=/tasks/To-do.md BRIEF_FILE=/out/brief.md
 Environment=EMAIL_HEALTH=/email/health.json
+# Markets section (markets.json from markets-build) and the fetch's health, both under /out.
+Environment=MARKETS_JSON=/out/web/markets.json FEEDS_HEALTH=/out/feeds/health.json
 # Agent page and Grafana stats (/out is ~/agent/data, shared with the email jobs)
 Environment=AGENT_DB=/out/agent.db AGENT_WEB_DIR=/out/web AGENT_STATS_DIR=/out/stats
 # Tapping the brief push opens the agent page:
@@ -33,6 +35,10 @@ Environment=TIME_DIR=/time TZ_NAME=Europe/London LOOKAHEAD_DAYS=7 LATER_DAYS=45
 # Environment="TIME_ACTIVITY_MAP=Calisthenics=Exercise; Sport/Gym=Exercise"
 # Old tag names shown under their new name:
 # Environment="TIME_TAG_MAP=Sport/Gym=Gym"
+# Weekly goals per activity (names exactly as in the time tracker): progress bars, pace and Wins/Slipping.
+Environment="TIME_GOALS=Computer Science=5h; Exercise=4h; Reading=2h"
+# Tapping a task on the page opens the to-do file (vault name as Obsidian shows it).
+Environment="TASKS_LINK=obsidian://open?vault=MyVault&file=Tasks%%2FTo-do"
 # The local model writes the Summary bullets; delete the next line to skip it.
 Environment=OLLAMA_URL=http://ollama:11434/api/chat MODEL=qwen3.5:9b
 # Optional push of the brief to your phone:

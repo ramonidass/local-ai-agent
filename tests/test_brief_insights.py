@@ -19,7 +19,8 @@ class FakeOllama(BaseHTTPRequestHandler):
         req = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         seen_prompts.append(req)
         self.send_response(200); self.end_headers()
-        self.wfile.write(json.dumps({"message": {"content": json.dumps({"bullets": replies.pop(0)})}}).encode())
+        r = replies.pop(0)   # a list of bullets, or the whole reply as a dict
+        self.wfile.write(json.dumps({"message": {"content": json.dumps(r if isinstance(r, dict) else {"bullets": r})}}).encode())
 
 
 srv = HTTPServer(("127.0.0.1", 0), FakeOllama)
@@ -74,7 +75,7 @@ csv_text = (
 # 1) facts are right
 replies.append([
     "Team call and Dentist overlap today at 10:00, so move one of them.",
-    "Exercise so far: 1h 50m this week, 3h 55m last week.",
+    "Exercise so far: 1h 50m this week, 3h 10m on the same days last week.",
     "You exercised 5 hours less than usual.",          # invented number -> dropped
     "Kafka study is up strongly this week.",
 ])
@@ -82,22 +83,22 @@ text, c = brief.build(now, consume_email=False)
 facts = brief.build.facts_text
 print(facts, "\n----\n", text)
 assert "Clash: Team call and Dentist overlap on Wed 28 Oct." in facts
-# old activities folded into Exercise; the whole of last week counts (Friday's 45m too)
-assert "Exercise: 1h 50m this week, 3h 55m last week." in facts, facts
+# old activities folded into Exercise; last week only counts Mon until Wed 07:55 (not Friday's 45m)
+assert "Exercise: 1h 50m this week, 3h 10m last week ▼ -42%." in facts, facts
 assert "Calisthenics:" not in facts and "Sport/Gym" not in facts and "(category)" not in facts
-assert "Kafka course: 3h this week, 2h last week ▲. Tags this period: Linux 3h." in facts  # UTC and +01:00 rows parsed
+assert "Kafka course: 3h this week, 1h last week ▲ +200%. Tags this period: Linux 3h." in facts  # UTC and +01:00 rows parsed
 assert "Tasks completed: 2 in the last 7 days vs 1 in the 7 days before." in facts
-assert "this week so far (Mon–Wed) vs all of last week" in facts
+assert "this week so far (Mon–Wed) vs the same days last week" in facts
 
 # 2) summary sits under the title, invented figure dropped and reported
 lines = text.splitlines()
 assert lines[2] == "## Summary" and lines[3].startswith("- **2 events today, "), lines[:5]
 assert "overlap today at 10:00" in text and "Exercise so far" in text and "Kafka study is up" in text
-assert "5 hours" not in text and "1 summary line(s) from the model were dropped" in text
+assert "5 hours" not in text and "were dropped" not in text
 tt = text.split("## Time tracked")[1].split("\n## ")[0]
-assert "_This week so far (Mon–Wed) vs all of last week_" in tt, tt
-assert "- **Kafka course** 3h · last week 2h ▲\n  - Linux 3h\n" in tt, tt
-assert "- **Exercise** 1h 50m · last week 3h 55m\n  - PullUps&PushUps 1h 30m (155), Calisthenics 30m, Gym 20m" in tt, tt
+assert "_This week so far (Mon–Wed) vs the same days last week; the bars are the last 8 weeks_" in tt, tt
+assert "- **Kafka course** 3h · last week 1h ▲ +200% · ▁▁▁▁▁▁▁█\n  - Linux 3h\n" in tt, tt
+assert "- **Exercise** 1h 50m · last week 3h 10m ▼ -42% · ▁▁▁▁▁▁▁█\n  - PullUps&PushUps 1h 30m (155), Calisthenics 30m, Gym 20m" in tt, tt
 assert tt.index("Kafka") < tt.index("Exercise")  # most time this week first
 assert seen_prompts[-1]["think"] is False and "FACTS:" in seen_prompts[-1]["messages"][1]["content"]
 
@@ -113,4 +114,59 @@ text_down, c_down = brief.build(now, consume_email=False)
 assert text_down.splitlines()[4] == "" and "Summary not written" in text_down and "## Today" in text_down
 assert brief.hm(0) == "0m" and brief.hm(15) == "15m" and brief.hm(120) == "2h" and brief.hm(150) == "2h 30m"
 assert brief.parse_tags("Bible, PullUps (1.5), Push (20)") == [("Bible", None), ("PullUps", 1.5), ("Push", 20.0)]
+
+# 5) weekly goals, wins and slipping (decided by code), focus from the model (numbers checked too)
+assert brief.parse_goals("Exercise=3h; Reading=90m; CS=2h 30m; Go=1.5h; bad=xyz; =2h") == \
+    {"Exercise": 180, "Reading": 90, "CS": 150, "Go": 90}
+assert brief.sparkline([0, 4, 8]) == "▁▅█" and brief.sparkline([0, 0]) == ""
+wed = now.date()
+assert brief.streak({wed, wed.replace(day=27), wed.replace(day=26)}, wed) == 3
+assert brief.streak({wed.replace(day=27), wed.replace(day=26)}, wed) == 2 and brief.streak(set(), wed) == 0
+brief.OLLAMA_URL = f"http://127.0.0.1:{srv.server_address[1]}/api/chat"
+brief.TIME_GOALS = "Exercise=3h; Kafka course=2h; Reading=1h"
+replies.append({"bullets": ["Team call and Dentist clash."],
+                "focus": ["Read for 12m this evening.", "Read for 99 minutes."]})   # 99 is made up -> dropped
+text, _ = brief.build(now, consume_email=False)
+facts = brief.build.facts_text
+assert "Weekly goal Reading: 0m of 1h, behind (17m expected after 2 of 7 days); 1h to go, 12m a day." in facts, facts
+assert "Weekly goal Kafka course: 3h of 2h, done." in facts
+assert "SLIPPING: Reading 0m / 1h · behind." in facts and "WIN: Exercise 1h 50m / 3h · on pace." in facts
+sections = [l for l in text.splitlines() if l.startswith("## ")]
+assert sections[:6] == ["## Summary", "## Focus today", "## Wins", "## Slipping", "## Weekly goals", "## Today"], sections
+assert "## Focus today\n- Read for 12m this evening.\n\n" in text and "99" not in text
+assert "were dropped" not in text
+assert ("## Wins\n- **Tasks done** 2 in 7 days · 1 the week before ▲\n- **Exercise** 1h 50m / 3h · on pace\n"
+        "- **Kafka course** 3h / 2h · done\n") in text, text
+assert "## Slipping\n- **Reading** 0m / 1h · behind\n" in text      # goal activity: not repeated as ▼ -42%
+assert ("## Weekly goals\n_2 of 7 days done, 5 left_\n\n- **Exercise** 1h 50m / 3h · on pace · 1h 10m to go, 14m a day\n"
+        "- **Kafka course** 3h / 2h · done\n- **Reading** 0m / 1h · behind · 1h to go, 12m a day\n") in text, text
+assert "## Last week in review" not in text                       # Monday only
+
+# 6) Monday: goals judge the whole of last week, plus a short review
+replies.append({"bullets": ["Quiet week ahead."], "focus": ["Plan 3h of exercise this week."]})
+text, _ = brief.build(datetime(2026, 11, 2, 7, 55, tzinfo=TZ), consume_email=False)
+assert "## Weekly goals\n_Last week (complete)_\n\n- **Exercise** 1h 50m / 3h · missed\n" in text, text
+review = text.split("## Last week in review\n")[1].split("\n\n")[0]
+assert review == ("- **Total tracked** 4h 50m · the week before 5h 55m ▼ -18%\n"
+                  "- **Best day** Tuesday 27 Oct, 3h 50m\n"
+                  "- **Biggest rise** Kafka course +1h\n"
+                  "- **Biggest drop** Exercise -2h 05m\n"
+                  "- **Goals hit** 1 of 3\n"
+                  "- **Tasks done** 1 in the last 7 days"), review
+assert "Last week: Best day Tuesday 27 Oct, 3h 50m." in brief.build.facts_text
+
+# 7) no goals set and no time data: no goals card, and Wins/Slipping only when there is something
+brief.TIME_GOALS = ""
+brief.OLLAMA_URL = ""
+text, _ = brief.build(now, consume_email=False)
+assert "## Weekly goals" not in text and "## Wins" in text and "## Focus today" not in text
+assert "Open in Obsidian" not in text
+
+# 8) shorter brief: an empty calendar is one line; the tasks card links to Obsidian
+brief.TASKS_LINK = "obsidian://open?vault=MyVault&file=Tasks%2FTo-do"
+text, _ = brief.build(datetime(2026, 11, 12, 7, 55, tzinfo=TZ), consume_email=False)
+assert "## Calendar\n- Nothing today or in the next 7 days.\n" in text and "## Today" not in text, text
+assert "\n_Open in Obsidian: obsidian://open?vault=MyVault&file=Tasks%2FTo-do_\n" in text.split("## Tasks")[1]
+import agentdb
+assert "<p><em>Open in Obsidian: obsidian://open?vault=MyVault&amp;file=Tasks%2FTo-do</em></p>" in agentdb.md_to_html(text)
 print("INSIGHTS OK")

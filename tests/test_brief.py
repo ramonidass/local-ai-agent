@@ -198,8 +198,8 @@ assert "Pay council tax" in text.split("### Due today")[1]
 assert "Done thing" not in text and "Cancelled thing" not in text
 assert "Book Seville flights" in text and "🔁" not in text and "📅" not in text
 assert "Ask about boiler" in text and "not a task" not in text
-assert "Far task" in text.split("### No date")[0] is False or "Far task" not in text.split("### Due in")[1].split("### No date")[0]
-assert "🔺 Call landlord" in text.split("### No date")[1].splitlines()[1]  # highest priority first
+assert "Far task" in text.split("### Anytime")[0] is False or "Far task" not in text.split("### Due in")[1].split("### Anytime")[0]
+assert "🔺 Call landlord" in text.split("### Anytime")[1].splitlines()[1]  # highest priority first
 assert "showing" not in text  # all undated tasks fit
 assert "Your parcel shipped." in text
 tasks_part = text.split("## Tasks")[1].split("## Email")[0]

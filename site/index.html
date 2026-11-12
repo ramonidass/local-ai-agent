@@ -12,6 +12,7 @@
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
+  <script src="world.js" defer></script>
 </head>
 <body>
   <!-- Icons, drawn once and reused with <use>. -->
@@ -19,20 +20,29 @@
     <symbol id="i-brief" viewBox="0 0 24 24"><path d="M12 3v2M5.6 5.6l1.4 1.4M3 12h2M19 12h2M17 7l1.4-1.4M7 17a5 5 0 1 1 10 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 20h18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m4 7 8 6 8-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10 20.5a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="4" y="14" width="16" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v4.5l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7 16v-4M12 16V7M17 16v-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-markets" viewBox="0 0 24 24"><path d="M4 16.5 9 11l3.5 3.5L20 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 7h5v5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-news" viewBox="0 0 24 24"><path d="M5 5h11v13a2 2 0 0 0 2 2H7a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M16 9h3v9a2 2 0 0 1-2 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 9h5M8 12.5h5M8 16h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   </svg>
 
   <header class="top">
     <div class="top-inner">
       <div class="brand">
-        <img class="logo" src="icon.svg" alt="" width="30" height="30">
-        <h1>Agent</h1>
+        <h1><img class="logo" src="icon.svg" alt="Agent" width="30" height="30"></h1>
       </div>
       <nav class="tabs" aria-label="Sections">
         <a href="#brief" class="tab" data-view="brief"><svg><use href="#i-brief"/></svg><span>Brief</span></a>
         <a href="#emails" class="tab" data-view="emails"><svg><use href="#i-mail"/></svg><span>Emails</span><b class="count" hidden></b></a>
-        <a href="#pushes" class="tab" data-view="pushes"><svg><use href="#i-bell"/></svg><span>Pushes</span></a>
+        <a href="#stats" class="tab" data-view="stats"><svg><use href="#i-chart"/></svg><span>Stats</span></a>
+        <a href="#markets" class="tab" data-view="markets"><svg><use href="#i-markets"/></svg><span>Markets</span></a>
+        <a href="#news" class="tab" data-view="news"><svg><use href="#i-news"/></svg><span>News</span></a>
       </nav>
+      <a href="#pushes" id="pushes-btn" class="icon-btn bell" aria-label="Pushes sent" title="Pushes sent"><svg><use href="#i-bell"/></svg><span class="dot" hidden></span></a>
       <span id="health" class="pill pill-muted">Loading…</span>
     </div>
   </header>
@@ -54,21 +64,19 @@
     </section>
 
     <section id="view-emails" class="view" data-view="emails" aria-labelledby="emails-title" hidden>
-      <div class="view-head">
-        <h2 id="emails-title">Emails</h2>
-        <span id="email-count" class="muted"></span>
-      </div>
+      <!-- Title, count and two icons on one row; the search field takes the title's place when open. -->
       <div class="toolbar">
-        <label class="search">
-          <svg aria-hidden="true"><use href="#i-search"/></svg>
-          <input id="search" type="search" placeholder="Search sender, subject or summary"
-                 autocomplete="off" aria-label="Search emails">
-        </label>
-        <div class="toolbar-row">
-          <div id="group-toggle" class="segmented" role="group" aria-label="Group emails">
-            <button type="button" data-group="category">By category</button>
-            <button type="button" data-group="date">By date</button>
+        <div class="view-head mail-head">
+          <h2 id="emails-title">Emails</h2>
+          <div id="search-box" class="search" hidden>
+            <svg aria-hidden="true"><use href="#i-search"/></svg>
+            <input id="search" type="search" placeholder="Sender, subject or summary"
+                   autocomplete="off" enterkeyhint="search" aria-label="Search emails">
+            <button type="button" id="search-close" class="icon-btn small" aria-label="Close search"><svg><use href="#i-close"/></svg></button>
           </div>
+          <span id="email-count" class="muted"></span>
+          <button type="button" id="search-open" class="icon-btn" aria-label="Search emails" title="Search (/)"><svg><use href="#i-search"/></svg></button>
+          <button type="button" id="group-toggle" class="icon-btn"><svg><use href="#i-layers"/></svg></button>
         </div>
         <div id="filters" class="chips" role="group" aria-label="Filter emails"></div>
       </div>
@@ -81,6 +89,51 @@
         <span class="muted">last 14 days</span>
       </div>
       <div id="push-list" class="list"></div>
+    </section>
+
+    <section id="view-stats" class="view" data-view="stats" aria-labelledby="stats-title" hidden>
+      <div class="view-head stats-head">
+        <h2 id="stats-title">Stats</h2>
+        <a id="grafana-link" class="icon-btn" target="_blank" rel="noopener noreferrer" hidden
+           title="Open in Grafana" aria-label="Open in Grafana"><svg><use href="#i-external"/></svg></a>
+        <div id="stats-mode" class="segmented" role="group" aria-label="Stats view"></div>
+      </div>
+      <!-- Overview: drawn from stats.json. One row of filters scopes everything under it. -->
+      <div id="stats-overview">
+        <!-- From the latest brief: weekly goals, time tracked, last week, what the agent did. -->
+        <h3 id="stats-week-title" class="group first" hidden>This week</h3>
+        <div id="stats-week" class="brief-grid"></div>
+        <h3 class="group">Over time</h3>
+        <div id="stats-filters" class="stats-filters"></div>
+        <p id="stats-note" class="muted stats-note"></p>
+        <div id="stats-body" class="brief-grid stats-grid"></div>
+      </div>
+      <!-- Time detail: the Grafana dashboard on the NAS, loaded only when this view opens. -->
+      <div id="stats-grafana" hidden>
+        <div id="grafana-box" class="grafana-box"></div>
+      </div>
+    </section>
+
+    <section id="view-markets" class="view" data-view="markets" aria-labelledby="markets-title" hidden>
+      <div class="view-head stats-head">
+        <h2 id="markets-title">Markets</h2>
+        <div id="markets-mode" class="segmented" role="group" aria-label="Markets view"></div>
+      </div>
+      <p id="markets-note" class="muted stats-note"></p>
+      <!-- Drawn from markets.json: alerts, the key prices, sectors, the watchlist; or the calendar. -->
+      <div id="markets-body"></div>
+    </section>
+
+    <section id="view-news" class="view" data-view="news" aria-labelledby="news-title" hidden>
+      <div class="toolbar">
+        <div class="view-head mail-head">
+          <h2 id="news-title">News</h2>
+          <span id="news-count" class="muted"></span>
+        </div>
+        <div id="news-filters" class="chips" role="group" aria-label="News sections"></div>
+      </div>
+      <!-- Drawn from news.json: one story per event, with the outlets covering it. -->
+      <div id="news-body"></div>
     </section>
 
     <footer class="foot muted"><span id="generated"></span></footer>
