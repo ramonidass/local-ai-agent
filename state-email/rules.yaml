@@ -15,9 +15,13 @@ rules:
   - name: Work domain
     from_domain: ["yourcompany.com"]
     category: work
-  - name: Back in stock
-    subject_any: ["back in stock", "now available", "restocked"]
-    category: urgent
+  # Only shops where you set a stock alert; other shops' restock mail is marketing (the model files it as ads).
+  - name: Back in stock (alerts I asked for)
+    from_domain: ["shop-i-watch.example"]
+    subject_any: ["back in stock", "restocked"]
+    category: purchase
+  # Urgent rules that only look at the subject are skipped for newsletters (mail with a
+  # List-Unsubscribe, List-Id or "Precedence: bulk" header). Add allow_bulk: true to override.
   - name: Security alerts
     subject_any: ["new sign-in", "password was changed", "unusual activity"]
     category: urgent
@@ -33,5 +37,5 @@ model_hints:
   jobs: "automated job alerts, job board listings and recruiting newsletters sent to many people"
   purchase: "an order, delivery, refund, bill, receipt or price drop"
   personal: "written by an individual person to me, not a company"
-  info: "an account, service, appointment or statement notice from a company"
-  ads: "marketing, promotion or newsletter"
+  info: "an account, service, appointment or statement notice from a company, including verification codes and security notices sent to all customers"
+  ads: "marketing, promotion or newsletter, including 'back in stock' or 'restocked' announcements from shops"

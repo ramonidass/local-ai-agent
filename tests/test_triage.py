@@ -258,6 +258,71 @@ for bad in (["--days", "2"], ["--dry-run", "--days", "0"]):
         assert e.code == 2
 print("--days OK")
 
+# 8c) a subject-only urgent rule never fires for a newsletter (Brand "Restocked | Back By Demand")
+import email as _email
+import email.policy as _policy
+news = _email.message_from_bytes(mk(0, "Brand <hello@brand.example.com>", "Restocked | Back in stock", "Shop now")[1],
+                                 policy=_policy.default)
+alert = _email.message_from_bytes(mk(0, "Shop <alerts@shop.com>", "Back in stock", "Buy")[1], policy=_policy.default)
+assert not triage.is_bulk(alert)
+news["List-Unsubscribe"] = "<https://brand.example.com/unsub>"
+assert triage.is_bulk(news)
+bulk_alert = _email.message_from_bytes(mk(0, "Shop <alerts@shop.com>", "x", "y")[1], policy=_policy.default)
+bulk_alert["Precedence"] = "bulk"
+assert triage.is_bulk(bulk_alert)
+rules = [{"name": "Any stock", "subject_any": ["back in stock"], "category": "urgent"},
+         {"name": "Watched shop", "from_domain": ["shop.com"], "subject_any": ["back in stock"], "category": "urgent"}]
+assert triage.match_rule(rules, "hello@brand.example.com", "Restocked | Back in stock", bulk=True) is None  # -> the model
+assert triage.match_rule(rules, "alerts@shop.com", "Back in stock", bulk=True)["name"] == "Watched shop"
+assert triage.match_rule(rules, "alerts@shop.com", "Back in stock")["name"] == "Any stock"
+rules[0]["allow_bulk"] = True
+assert triage.match_rule(rules, "hello@brand.example.com", "Back in stock", bulk=True)["name"] == "Any stock"
+work = [{"name": "Work", "subject_any": ["invoice"], "category": "work"}]
+assert triage.match_rule(work, "a@b.com", "Invoice", bulk=True)["name"] == "Work"  # only urgent is guarded
+print("bulk guard OK")
+
+# 8d) eval set: export recent mail read-only, label by hand, check the rules and model against it
+import contextlib, io, yaml
+restock = EmailMessage()
+restock["From"], restock["Subject"] = "Brand <hello@brand.example.com>", "Restocked | Back in stock"
+restock["List-Unsubscribe"] = "<https://brand.example.com/unsub>"
+restock.set_content("Shop now")
+fake = FakeIMAP(MESSAGES[:3] + [(107, restock.as_bytes())], uidvalidity="9")
+triage.connect = lambda: fake
+eval_file = home / "eval.yaml"
+state_before, ntfy_calls[:] = (home / "state.json").read_text(), []
+with contextlib.redirect_stdout(io.StringIO()):
+    triage.main(["--export-eval", str(eval_file), "--days", "30"])
+assert fake.readonly is True and fake.copies == [] and fake.stores == [] and ntfy_calls == []
+assert (home / "state.json").read_text() == state_before and oct(eval_file.stat().st_mode)[-3:] == "600"
+cases = yaml.safe_load(eval_file.read_text())
+assert eval_file.read_text().startswith("# Hand-labelled emails")
+assert [c["from"] for c in cases] == ["boss@acme.com", "alerts@shop.com", "news@deals.com", "hello@brand.example.com"]
+assert [c["bulk"] for c in cases] == [False, False, False, True] and cases[0]["body"] == "Please review."
+# labelled by hand: the shop's "back in stock" mail should not have been urgent; one case left unlabelled
+for c, label in zip(cases, ["work", "ads", "ads", ""]):
+    c["expected"] = label
+eval_file.write_text(yaml.safe_dump(cases))
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    try:
+        triage.main(["--eval", str(eval_file)])
+        raise AssertionError("a wrong case must exit 1")
+    except SystemExit as e:
+        assert e.code == 1
+report = out.getvalue()
+assert "2 of 3 sorted right (67%)." in report, report
+assert "Pushes: 2 sent, 1 should not have been (precision 50%); 0 missed that should have pushed." in report, report
+assert "expected ads      got urgent   (rule: Back in stock)  alerts@shop.com: Item BACK IN STOCK now" in report, report
+cases[1]["expected"] = "urgent"
+eval_file.write_text(yaml.safe_dump(cases))
+with contextlib.redirect_stdout(io.StringIO()):
+    try:
+        triage.main(["--eval", str(eval_file)])
+    except SystemExit as e:
+        assert e.code == 0
+print("eval set OK")
+
 # 9) the brief warns about broken or stale triage
 import time as _t
 from datetime import datetime as _dt
