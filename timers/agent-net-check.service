@@ -1,0 +1,8 @@
+[Unit]
+Description=Check the proxy can reach Proton; rebuild Podman's network if it can't
+After=egress-proxy.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh %h/agent/bin/agent-net-check.sh
+TimeoutStartSec=5min

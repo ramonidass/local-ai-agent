@@ -1,0 +1,10 @@
+[Unit]
+Description=Proxy check 3 minutes after boot, at 07:40 (after the morning wake), and every 30 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=30min
+OnCalendar=*-*-* 07:40
+
+[Install]
+WantedBy=timers.target
