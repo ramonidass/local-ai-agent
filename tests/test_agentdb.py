@@ -71,6 +71,11 @@ os.environ["NTFY_URL"] = f"http://127.0.0.1:{port}/email-agent"
 import agentdb  # noqa: E402
 import triage  # noqa: E402
 
+# The mail below is dated 2 Nov 2026 and "Agent this week" counts the last 7 days, so the test
+# runs at a fixed time in that week instead of today.
+from datetime import datetime, timezone  # noqa: E402
+agentdb._now = lambda: datetime(2026, 11, 5, 12, tzinfo=timezone.utc)
+
 EVIL = '<img src=x onerror="alert(1)">'
 
 
@@ -142,6 +147,10 @@ assert "<img" not in brief_html and "&lt;img src=x onerror=&quot;alert(1)&quot;&
 assert "<strong>Busy</strong>" in brief_html and "<h2>Morning brief</h2>" in brief_html
 assert "<code>code</code>" in brief_html and "<em>Built 07:55.</em>" in brief_html
 assert data["health"]["fails"] == 0 and data["health"]["last_ok"]
+# "Agent this week": counts for the last 7 days and the 7 before
+week = data["value"]["week"]
+assert (week["emails"], week["pushed"], week["by_rule"], week["runs"], week["runs_ok"]) == (5, 2, 2, 1, 1), week
+assert data["value"]["before"]["emails"] == 0 and data["value"]["before"]["runs"] == 0
 # full text: one file per email, fetched by the page; none for mail imported from the old queue
 by_id = {e["id"]: e for e in data["emails"]}
 assert by_id["email-5-11"]["has_body"] and not by_id["email-5-3"]["has_body"]
