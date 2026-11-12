@@ -1,0 +1,82 @@
+# Watchlist for the Markets tab. Symbols as Tiingo writes them (US listings).
+# Adding a symbol here is all it takes; Tiingo's free tier allows 500 different symbols a month.
+# Groups matter for the rules (step 6): sectors and themes are compared with the benchmarks.
+
+benchmarks:
+  QQQ: NASDAQ-100
+  SPY: S&P 500
+
+themes:
+  SMH: Semiconductors
+  AIQ: Artificial intelligence
+  UFO: Space
+
+# The 11 SPDR sector funds: together they make up the S&P 500.
+sectors:
+  XLK: Technology
+  XLC: Communication services
+  XLY: Consumer discretionary
+  XLP: Consumer staples
+  XLE: Energy
+  XLF: Financials
+  XLV: Health care
+  XLI: Industrials
+  XLB: Materials
+  XLRE: Real estate
+  XLU: Utilities
+
+gold:
+  GLD: Gold
+
+# Stocks also get earnings (EPS and revenue, estimate vs actual) and company news from Finnhub.
+stocks:
+  NVDA: Nvidia
+  MSFT: Microsoft
+  AAPL: Apple
+  AMZN: Amazon
+  GOOGL: Alphabet
+  META: Meta
+  AVGO: Broadcom
+  TSLA: Tesla
+  RKLB: Rocket Lab
+
+# Tiingo crypto tickers (coin + quote currency).
+crypto:
+  btcusd: Bitcoin
+
+# Days of daily closes fetched each morning: a year plus a margin, for 13-week and 52-week rules.
+history_days: 400
+
+# US releases the brief shows: FRED's name (exact) -> the label you see.
+releases:
+  Consumer Price Index: US CPI
+  Employment Situation: US jobs report
+  Gross Domestic Product: US GDP
+  Personal Income and Outlays: US PCE inflation
+  Producer Price Index: US PPI
+  Advance Monthly Sales for Retail and Food Services: US retail sales
+
+# Rate decisions, from the banks' own calendars (checked 2026-11-10). FRED's "FOMC Press Release"
+# is listed every day, so the Fed is here too (the second day of each meeting; 2027 is tentative).
+# Update once a year: federalreserve.gov/monetarypolicy/fomccalendars.htm,
+# bankofengland.co.uk/monetary-policy/upcoming-mpc-dates and
+# ecb.europa.eu/press/calendars/mgcgc (the day of the press conference).
+central_banks:
+  Fed: [2026-12-09, 2027-01-27, 2027-03-17, 2027-04-28, 2027-06-09, 2027-07-28, 2027-09-15,
+        2027-10-27, 2027-12-08]
+  Bank of England: [2026-12-17, 2027-02-04, 2027-03-18, 2027-04-29, 2027-06-17, 2027-07-29,
+                    2027-09-16, 2027-11-04, 2027-12-16]
+  ECB: [2026-12-17, 2027-02-04, 2027-03-18, 2027-04-29, 2027-06-10, 2027-07-22, 2027-09-09,
+        2027-10-28, 2027-12-16]
+
+# When code calls something an alert. Moves are measured against each symbol's usual move
+# (its standard deviation), so the same rule fits Rocket Lab and consumer staples.
+rules:
+  big_day: 2.5          # a day's move over 2.5x its usual daily move (last 60 trading days)
+  big_week: 2.0         # a week's move over 2x its usual weekly move (last year)
+  min_day_move: 1.5     # ...and at least this many % (a calm stock's 0.4% day is not news)
+  min_week_move: 3.0
+  vs_market: 2.0        # a sector or theme beating or trailing the S&P 500 over a week by 2x its usual gap
+  min_vs_market: 2.0    # ...and by at least this many %
+  earnings_margin: 2.0  # % above the estimate is a beat, below is a miss, in between "in line"
+  trend_groups: [benchmarks, gold, crypto]   # 200-day average crossings, for these groups only

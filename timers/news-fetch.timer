@@ -1,0 +1,10 @@
+[Unit]
+Description=Markets and News fetch at 07:35 (before the brief) and 18:00
+
+[Timer]
+OnCalendar=*-*-* 07:35
+OnCalendar=*-*-* 18:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

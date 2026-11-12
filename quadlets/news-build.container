@@ -1,0 +1,21 @@
+[Unit]
+Description=News: stories grouped from the fetched feeds (one run, no network)
+
+[Container]
+ContainerName=news-build
+Image=agent-jobs.build
+Exec=/app/news.py
+# No network at all: it only reads files the fetch saved, and writes web/news.json.
+Network=none
+UserNS=keep-id
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=all
+Volume=%h/agent/state/feeds:/config:ro,z
+Volume=%h/agent/data/feeds:/feeds:ro,z
+Volume=%h/agent/data/web:/web:z
+Environment=FEEDS_CONFIG=/config FEEDS_DIR=/feeds AGENT_WEB_DIR=/web
+
+[Service]
+Type=oneshot
+TimeoutStartSec=5min

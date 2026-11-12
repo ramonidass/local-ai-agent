@@ -1,5 +1,5 @@
 [Unit]
-Description=Allowlist proxy: the mail bridge may reach Proton and nothing else
+Description=Allowlist proxy: the mail bridge may reach Proton, news-fetch its named hosts, nothing else
 
 [Container]
 ContainerName=egress-proxy
@@ -7,6 +7,8 @@ ContainerName=egress-proxy
 Image=docker.io/ubuntu/squid:6.6-24.04_beta
 Network=egress.network
 Network=agent.network
+# news-fetch reaches Squid here; squid.conf tells it apart by this network's subnet.
+Network=fetch.network
 Volume=%h/agent/egress-proxy/squid.conf:/etc/squid/squid.conf:ro,Z
 NoNewPrivileges=true
 

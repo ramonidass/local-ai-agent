@@ -1,0 +1,47 @@
+# News sources. Europe first, then the US, then major world news; tech and space on top.
+# Each feed's host must also be in egress-proxy/squid.conf (tests/test_fetch.py checks this).
+# region and topic place a feed on the News tab; outlet joins an outlet's feeds (default: the name).
+# The order matters: when several outlets cover a story, the first one listed gives the headline.
+# Ownership in brackets, for balance:
+# public broadcasters first, then papers and sites with a known lean.
+
+feeds:
+  # Europe
+  - {name: BBC Europe, outlet: BBC,      region: Europe, topic: Politics, url: "https://feeds.bbci.co.uk/news/world/europe/rss.xml"}  # UK public
+  - {name: BBC UK Politics, outlet: BBC, region: Europe, topic: Politics, url: "https://feeds.bbci.co.uk/news/politics/rss.xml"}
+  - {name: DW,              region: Europe, topic: World,    url: "https://rss.dw.com/xml/rss-en-all"}                    # German public
+  - {name: France 24 Europe, outlet: France 24, region: Europe, topic: Politics, url: "https://www.france24.com/en/europe/rss"}            # French public
+  - {name: Euronews,        region: Europe, topic: World,    url: "https://www.euronews.com/rss"}
+  - {name: Politico Europe, region: Europe, topic: Politics, url: "https://www.politico.eu/feed/"}
+  - {name: Guardian Europe, outlet: The Guardian, region: Europe, topic: Politics, url: "https://www.theguardian.com/world/europe-news/rss"}  # centre-left
+  # US
+  - {name: BBC US, outlet: BBC,          region: US,     topic: Politics, url: "https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml"}
+  - {name: NPR Politics, outlet: NPR,    region: US,     topic: Politics, url: "https://feeds.npr.org/1014/rss.xml"}                   # US public, centre-left
+  - {name: Fox Politics, outlet: Fox News,    region: US,     topic: Politics, url: "https://moxie.foxnews.com/google-publisher/politics.xml"}  # right
+  # World and business
+  - {name: BBC World, outlet: BBC,       region: World,  topic: World,    url: "https://feeds.bbci.co.uk/news/world/rss.xml"}
+  - {name: BBC Business, outlet: BBC,    region: World,  topic: Business, url: "https://feeds.bbci.co.uk/news/business/rss.xml"}
+  # Tech and space
+  - {name: BBC Technology, outlet: BBC,  region: World,  topic: Tech,     url: "https://feeds.bbci.co.uk/news/technology/rss.xml"}
+  - {name: Ars Technica,    region: World,  topic: Tech,     url: "https://feeds.arstechnica.com/arstechnica/index"}
+  - {name: Sifted,          region: Europe, topic: Tech,     url: "https://sifted.eu/feed"}                         # European tech and startups
+  - {name: SpaceNews,       region: World,  topic: Space,    url: "https://spacenews.com/feed/"}
+
+# GDELT counts coverage across thousands of outlets: good for "what is everyone writing about".
+# Off for now (2026-11-10): it answered 429 "one request every 5 seconds" even to a first request,
+# probably because of a shared VPN address. Remove the # signs to
+# try again; the job skips it while this is commented out.
+# Queries use GDELT's syntax: OR only inside brackets, phrases in quotes, words of 3+ letters.
+# gdelt:
+#   timespan: 12h
+#   max_records: 75
+#   countries: [unitedkingdom, ireland, france, germany, spain, italy, netherlands, belgium,
+#               poland, sweden, unitedstates]
+#   topics:
+#     Politics: '(election OR parliament OR "prime minister" OR chancellor OR "European Commission" OR "White House" OR Congress OR sanctions OR tariffs)'
+#     Tech and AI: '("artificial intelligence" OR semiconductor OR chips OR antitrust OR cybersecurity OR OpenAI OR Nvidia)'
+#     Space: '(SpaceX OR NASA OR "European Space Agency" OR "rocket launch" OR satellite)'
+#     Economy: '("European Central Bank" OR "Federal Reserve" OR "Bank of England" OR inflation OR "interest rates" OR recession)'
+
+hackernews:
+  top: 30

@@ -1,0 +1,31 @@
+[Unit]
+Description=Markets and News fetch (one run)
+Wants=egress-proxy.service
+After=egress-proxy.service
+# Rules and page data from what was just fetched (two offline jobs).
+OnSuccess=markets-build.service news-build.service
+
+[Container]
+ContainerName=news-fetch
+Image=agent-jobs.build
+Exec=/app/fetch.py
+# Only fetch.network: Squid lets it reach the hosts in squid.conf, and it sees no other container.
+Network=fetch.network
+UserNS=keep-id
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=all
+# Read-only watchlist and feed list; the only writable folder is feeds/ (no mail, tasks or agent.db).
+Volume=%h/agent/state/feeds:/config:ro,z
+Volume=%h/agent/data/feeds:/feeds:z
+Environment=FEEDS_CONFIG=/config FEEDS_DIR=/feeds TZ_NAME=Europe/London
+Environment=HTTPS_PROXY=http://egress-proxy:3128
+# Free API keys (SETUP.md, Markets and News). The unit won't start if one of these is missing.
+Secret=tiingo-key,type=env,target=TIINGO_KEY
+Secret=finnhub-key,type=env,target=FINNHUB_KEY
+Secret=fred-key,type=env,target=FRED_KEY
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/mkdir -p %h/agent/data/feeds
+TimeoutStartSec=10min

@@ -1,0 +1,5 @@
+# Internal network for news-fetch alone: it can reach Squid (also on here) and nothing else, not
+# Ollama, ntfy, the mail bridge or the page. The fixed subnet is what squid.conf's fetch_net matches.
+[Network]
+Internal=true
+Subnet=10.89.250.0/24

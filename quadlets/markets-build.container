@@ -1,0 +1,23 @@
+[Unit]
+Description=Markets: rules and page data from the fetched feeds (one run, no network)
+
+[Container]
+ContainerName=markets-build
+Image=agent-jobs.build
+Exec=/app/markets.py
+# No network at all: it only reads files the fetch saved.
+Network=none
+UserNS=keep-id
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=all
+Volume=%h/agent/state/feeds:/config:ro,z
+# agent.db and web/ are written; the fetched files under them are read-only.
+Volume=%h/agent/data:/out:z
+Volume=%h/agent/data/feeds:/out/feeds:ro,z
+Environment=FEEDS_CONFIG=/config FEEDS_DIR=/out/feeds TZ_NAME=Europe/London
+Environment=AGENT_DB=/out/agent.db AGENT_WEB_DIR=/out/web AGENT_STATS_DIR=/out/stats
+
+[Service]
+Type=oneshot
+TimeoutStartSec=5min
