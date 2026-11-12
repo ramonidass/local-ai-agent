@@ -31,6 +31,7 @@ cp ~/agent-setup/caddy/Caddyfile    ~/agent/caddy/Caddyfile
 cp ~/agent-setup/caddy/caddy.socket ~/.config/systemd/user/
 cp ~/agent-setup/site/*             ~/agent/site/
 cp ~/agent-setup/timers/*           ~/.config/systemd/user/
+mkdir -p ~/agent/bin && cp ~/agent-setup/bin/* ~/agent/bin/
 cp ~/agent-setup/quadlets/*         ~/.config/containers/systemd/
 # Starting with hydroxide (free), so drop the official-Bridge units:
 rm ~/.config/containers/systemd/protonmail-bridge.{container,build}
@@ -41,6 +42,7 @@ rm ~/.config/containers/systemd/protonmail-bridge.{container,build}
 ```bash
 PROTON=you@proton.me
 SERVER=192.168.8.20                 # this machine's LAN address
+ROUTER=192.168.8.1                  # your router: Squid asks it for DNS
 CAL=Sync/calendar                   # Fossify Calendar backups (relative to home)
 TIME=Sync/timetracker               # SimpleTimeTracker CSV exports
 TASKS=Obsidian/Tasks                # folder with To-do.md
@@ -48,6 +50,7 @@ TASKS=Obsidian/Tasks                # folder with To-do.md
 Q=~/.config/containers/systemd
 sed -i "s|you@proton.me|$PROTON|" $Q/email-triage.container
 sed -i "s|%h/Sync/calendar|%h/$CAL|; s|%h/Sync/timetracker|%h/$TIME|; s|%h/Obsidian/Tasks|%h/$TASKS|" $Q/morning-brief.container
+sed -i "s|dns_nameservers .*|dns_nameservers $ROUTER|" ~/agent/egress-proxy/squid.conf
 sed -i "s|K8-LAN-IP|$SERVER|" ~/agent/ntfy/etc/server.yml $Q/email-triage.container $Q/email-digest.container $Q/morning-brief.container
 ```
 
@@ -164,17 +167,54 @@ looks right:
 ```bash
 systemctl --user start email-triage && journalctl --user -u email-triage -n 30
 systemctl --user start morning-brief && cat ~/agent/data/brief.md
-systemctl --user enable --now email-triage.timer email-digest.timer morning-brief.timer
+systemctl --user enable --now email-triage.timer email-digest.timer morning-brief.timer agent-net-check.timer
 ```
 
 - [ ] Labels appear in Proton, urgent mail pushes, the brief arrives.
 - [ ] `systemctl --user stop hydroxide`, wait three triage runs: a "triage is NOT working" push
       arrives. Start it again: "working again" arrives.
 
+## 8b. Markets and News (optional)
+
+A separate one-shot job, `news-fetch`, at 07:35 and 18:00, on its own internal network
+(`fetch.network`): Squid lets it reach only the hosts in `fetch_hosts` in `squid.conf`. Two offline
+jobs run after each good fetch: `markets-build` (closes, earnings and alert rules into `agent.db`,
+`web/markets.json`) and `news-build` (stories grouped across outlets, `web/news.json`).
+
+Free keys from Tiingo (daily closes, Bitcoin), Finnhub (earnings) and FRED (US release dates),
+stored as Podman secrets (pasted, not echoed):
+
+```bash
+read -rs K && printf '%s' "$K" | podman secret create tiingo-key - && unset K
+read -rs K && printf '%s' "$K" | podman secret create finnhub-key - && unset K
+read -rs K && printf '%s' "$K" | podman secret create fred-key - && unset K
+
+mkdir -p ~/agent/state/feeds ~/agent/data/feeds
+cp state-feeds/*.yaml ~/agent/state/feeds/          # the watchlist and the feeds: edit to taste
+cp timers/news-fetch.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user restart agent-jobs-build egress-proxy
+systemctl --user start news-fetch                   # about a minute; markets-build and news-build follow
+journalctl --user -u news-fetch -n 20               # one line per source: ok / FAILED
+systemctl --user enable --now news-fetch.timer
+```
+
+Prove it's fenced in: from the fetch network, `example.com` and Proton must both get 403, and
+`ollama` must not resolve:
+
+```bash
+for h in example.com mail.proton.me; do podman run --rm --network systemd-fetch localhost/agent-jobs:latest -c "import urllib.request as u; u.build_opener(u.ProxyHandler({'https': 'http://egress-proxy:3128'})).open('https://$h', timeout=10)" 2>&1 | grep -o 403; done
+podman run --rm --network systemd-fetch localhost/agent-jobs:latest -c "import socket; socket.create_connection(('ollama', 11434), 3)" 2>&1 | tail -1
+```
+
+Without the keys, leave out the three `Secret=` lines in `news-fetch.container`; the sources that
+need them fail and the rest still run.
+
 ## 9. The page
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8088/      # 200
+for f in data stats markets news; do curl -s -o /dev/null -w "$f.json %{http_code}\n" http://127.0.0.1:8088/$f.json; done
 ```
 
 On the phone, over WireGuard, open `http://192.168.8.20:8088/`. To get an app-like icon on
