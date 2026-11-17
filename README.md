@@ -1,4 +1,4 @@
-# offline-home-agent
+# Offline AI agent assistant
 
 A small assistant that runs on a mini PC at home and has no internet access. It sorts my Proton
 Mail, pushes the emails that matter to my phone, and writes a morning brief from my calendar,
