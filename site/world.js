@@ -21,7 +21,7 @@ const LIST_GROUPS = ["themes", "stocks"];            // rows you can open
 const ALERTS_SHOWN = 5;
 const NEWS_SHOWN = 15;
 
-const world = { markets: null, news: null, period: "d1", mode: "overview", open: new Set(), allAlerts: false,
+const world = { markets: null, news: null, picks: null, period: "d1", mode: "overview", open: new Set(), allAlerts: false,
   section: "top", topic: "all", newsShown: NEWS_SHOWN, marketsDrawn: "", newsDrawn: "" };
 
 // ---------- numbers ----------
@@ -553,6 +553,56 @@ function topStories(limit) {
   return top;
 }
 
+// ---------- the local model's picks (picks/news-picks.json, written by news-picks) ----------
+// The why lines come from a model that read untrusted headlines, so they are untrusted too: plain
+// text only (textContent), cut to length. Headline, link and outlets always come from news.json's
+// list, never from the picks file; picks made for an older list, or that don't match it, are ignored.
+const PICKS_MAX = 7;
+const WHY_MAX = 140;
+
+function newsPicks() {
+  const p = world.picks;
+  const list = newsList("candidates");
+  if (!p || typeof p !== "object" || !Array.isArray(p.picks) || !world.news) return null;
+  if (p.list_generated !== world.news.generated) return null;
+  const model = p.source === "model";
+  const out = [];
+  const seen = new Set();
+  for (const x of p.picks.slice(0, PICKS_MAX)) {
+    const n = x && x.rank;
+    if (!Number.isInteger(n) || n < 1 || n > list.length || seen.has(n) || list[n - 1].url !== x.url) return null;
+    seen.add(n);
+    out.push({ rank: n, story: list[n - 1], why: model && typeof x.why === "string" ? x.why.slice(0, WHY_MAX) : "" });
+  }
+  if (!out.length) return null;
+  return { model, reason: typeof p.reason === "string" ? p.reason.slice(0, 160) : "", picks: out };
+}
+
+function outletsLine(s) {
+  return s.outlets.length > 1 ? `${s.outlets.length} outlets · ${s.outlets.join(", ")}` : `${s.outlets[0]} · ${ago(s.at)}`;
+}
+
+// One row per pick: the list's headline and link, its outlets, and the model's line as plain text.
+function pickRows(picked, withRank) {
+  const list = el("div", "brief-stories");
+  for (const p of picked.picks) {
+    const row = el("div", "brief-story");
+    row.append(httpsLink(p.story.url, p.story.title, "story-title"),
+      el("span", "story-src", (withRank ? `#${p.rank} · ` : "") + outletsLine(p.story)));
+    if (p.why) row.append(el("p", "pick-why", p.why));
+    list.append(row);
+  }
+  return list;
+}
+
+function picksCard(picked) {
+  const card = el("article", "card brief news-picks");
+  card.append(el("h3", null, "Picked for you"),
+    el("p", "value-note", "Chosen from the list below by the local model; its notes are its own reading and can be wrong."),
+    pickRows(picked, true));
+  return card;
+}
+
 function storyNode(s, withSection) {
   const node = el("article", "story");
   node.append(httpsLink(s.url, s.title, "story-title"));
@@ -634,7 +684,7 @@ function drawNews(force) {
   if (!sections.some(([id]) => id === world.section)) world.section = "top";
   const topics = newsTopics();
   if (!topics.includes(world.topic)) world.topic = "all";
-  const key = `${n.generated}|${world.section}|${world.topic}|${world.newsShown}`;
+  const key = `${n.generated}|${(world.picks && world.picks.generated) || ""}|${world.section}|${world.topic}|${world.newsShown}`;
   if (!force && key === world.newsDrawn) return; // keeps an opened story open across refreshes
   world.newsDrawn = key;
   const sectionCounts = {};
@@ -661,9 +711,14 @@ function drawNews(force) {
   const shown = all.slice(0, world.newsShown);
   const about = world.topic === "all" ? "" : ` about ${world.topic}`;
   body.replaceChildren();
+  if (top && world.topic === "all") {
+    const mine = newsPicks();
+    if (mine && mine.model) body.append(picksCard(mine));
+    else if (mine) body.append(el("p", "muted stats-note", `No picks from the local model this time (${mine.reason}).`));
+  }
   if (top) {
     body.append(el("p", "muted stats-note", picked
-      ? "Today's shortlist: stories with a topic, most-covered first, then the newest, and only a few led by one outlet. Open one to compare how each tells it."
+      ? "Today's shortlist: what several outlets cover and stories with a topic, most-covered first, then the newest (Europe first), and only a few led by one outlet. Open one to compare how each tells it."
       : "Stories several outlets are covering, most-covered first. Open one to compare how each tells it."));
   }
   if (!all.length) {
@@ -696,8 +751,21 @@ function drawNews(force) {
     (failed.length ? ` Not updated: ${failed.join(", ")}.` : "")));
 }
 
-// "Top stories" under the brief: drawn by the page, so headlines never enter the brief's own text.
+// "Top stories" under the brief: drawn by the page, so headlines (and the model's lines about them)
+// never enter the brief's own text. The local model's picks when there are some for today's list, or
+// the top of the list when it had none to give; without a picks file, the first three as before.
 function briefNewsCard() {
+  const mine = newsPicks();
+  if (mine) {
+    const card = el("article", "card brief wide news-card");
+    card.append(el("h3", null, "Top stories"),
+      el("p", "value-note", mine.model ? "Picked by the local model; its notes can be wrong" : "The top of today's list"),
+      pickRows(mine, false));
+    const link = el("a", "card-link", "Open News");
+    link.href = "#news";
+    card.append(link);
+    return card;
+  }
   const top = topStories(3);
   if (!top.length) return null;
   const card = el("article", "card brief wide news-card");
@@ -706,7 +774,7 @@ function briefNewsCard() {
   for (const s of top) {
     const row = el("div", "brief-story");
     row.append(httpsLink(s.url, s.title, "story-title"),
-      el("span", "story-src", s.outlets.length > 1 ? `${s.outlets.length} outlets · ${s.outlets.join(", ")}` : `${s.outlets[0]} · ${ago(s.at)}`));
+      el("span", "story-src", outletsLine(s)));
     list.append(row);
   }
   const link = el("a", "card-link", "Open News");
@@ -726,9 +794,10 @@ async function loadWorld() {
       return null;
     }
   };
-  const [markets, news] = await Promise.all([get("markets.json"), get("news.json")]);
+  const [markets, news, picks] = await Promise.all([get("markets.json"), get("news.json"), get("picks/news-picks.json")]);
   world.markets = markets || world.markets;
   world.news = news || world.news;
+  world.picks = picks || world.picks;     // checked against the list when drawn (newsPicks)
 }
 
 function initWorld() {
