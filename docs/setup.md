@@ -179,7 +179,9 @@ systemctl --user enable --now email-triage.timer email-digest.timer morning-brie
 A separate one-shot job, `news-fetch`, at 07:35 and 18:00, on its own internal network
 (`fetch.network`): Squid lets it reach only the hosts in `fetch_hosts` in `squid.conf`. Two offline
 jobs run after each good fetch: `markets-build` (closes, earnings and alert rules into `agent.db`,
-`web/markets.json`) and `news-build` (stories grouped across outlets, `web/news.json`).
+`web/markets.json`) and `news-build` (stories grouped across outlets, in sections by region, each
+tagged with the `topics:` of `news.yaml`, plus the day's shortlist of stories with a topic,
+`web/news.json`).
 
 Free keys from Tiingo (daily closes, Bitcoin), Finnhub (earnings) and FRED (US release dates),
 stored as Podman secrets (pasted, not echoed):
@@ -197,6 +199,19 @@ systemctl --user restart agent-jobs-build egress-proxy
 systemctl --user start news-fetch                   # about a minute; markets-build and news-build follow
 journalctl --user -u news-fetch -n 20               # one line per source: ok / FAILED
 systemctl --user enable --now news-fetch.timer
+```
+
+**Tuning the news topics** (`topics:` in `news.yaml`), like triage's eval: export the latest fetch's
+stories, fix `expected` where a story got the wrong topics, then change keywords until `--eval`
+passes. Offline, in the job image; neither writes `news.json` nor touches `agent.db`:
+
+```bash
+mkdir -p ~/agent/eval
+E="podman run --rm --network=none --userns keep-id -v $HOME/agent/state/feeds:/config:ro,z
+   -v $HOME/agent/data/feeds:/feeds:ro,z -v $HOME/agent/eval:/eval:z -e FEEDS_CONFIG=/config -e FEEDS_DIR=/feeds
+   localhost/agent-jobs:latest /app/news.py"
+$E --export-eval /eval/news-eval.yaml   # then edit ~/agent/eval/news-eval.yaml (readable by you only)
+$E --eval /eval/news-eval.yaml          # after each news.yaml change: what changed, what's wrong; exit 1 if any
 ```
 
 Prove it's fenced in: from the fetch network, `example.com` and Proton must both get 403, and
