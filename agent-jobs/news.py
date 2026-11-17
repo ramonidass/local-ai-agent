@@ -2,9 +2,10 @@
 """News: the fetched feeds -> web/news.json for the News tab.
 
 Runs right after each successful news-fetch, with no network at all and no model. Code groups
-the same story from different outlets (by the words in the headlines), so the tab can show one
-story with its outlets instead of five near-identical headlines, each tagged with the topics: of
-news.yaml whose keywords its headlines carry, plus the day's shortlist (candidates: in news.yaml).
+the same story from different outlets (by the words in the headlines, then by the rarer words of
+headline and summary, for the same event told in other words), so the tab can show one story with
+its outlets instead of five near-identical headlines, each tagged with the topics: of news.yaml
+whose keywords its headlines carry, plus the day's shortlist (candidates: in news.yaml).
 Headlines are untrusted text: they are cut to length, only https:// links are kept, and the page
 shows them as plain text.
 
@@ -13,9 +14,14 @@ Usage:
   news.py --print                  # print the stories several outlets cover, write nothing
   news.py --export-eval eval.yaml  # the latest fetch's stories as test cases; label their topics by hand
   news.py --eval eval.yaml         # how the current news.yaml topics tag them (exit 1 if any is wrong)
+  news.py --eval-top labels.yaml   # keep/drop labels against the Top list (candidates) of the latest fetch
+
+--eval-top ranks as of the fetch, not now, so a fetch from last week gives the same numbers today. To
+check a saved fetch, point the job at it: FEEDS_DIR=samples/feeds FEEDS_CONFIG=state-feeds.
 """
 import argparse
 import json
+import math
 from collections import Counter
 import os
 import re
@@ -34,9 +40,11 @@ CONFIG_DIR = Path(os.path.expanduser(os.environ.get("FEEDS_CONFIG", "~/agent/sta
 MAX_AGE_HOURS = int(os.environ.get("NEWS_MAX_AGE_HOURS", "36"))
 PER_SECTION = 150           # stories kept per section: the fetch of 2026-11-16 07:35 had 111 in Europe
 # The day's shortlist; news.yaml candidates: overrides these
-CANDIDATES = {"max": 40, "per_outlet": 8, "weights": {"outlets": 1.0, "fresh": 0.5}}
+CANDIDATES = {"max": 40, "per_outlet": 8, "no_topic_outlets": 2, "weights": {"outlets": 1.0, "fresh": 0.5},
+              "sections": {}}
 SECTIONS = ("Europe", "US", "World")   # by region only; the subject is the topics: of news.yaml
 SAME_STORY = 0.34           # share of headline words two items must have in common
+SAME_EVENT = 0.25           # or: likeness of two stories' words, rare words counting most (merge_events())
 STOP = set("""a about after again against all also amid among an and are as at be been before being between
 both but by can could did do does down during for from had has have he her his how if in into is it its
 just may more most new no not of off on one or out over says said say she should since so some than that
@@ -146,21 +154,28 @@ def topics_config():
 
 def candidates_config():
     """The candidates: block of news.yaml over CANDIDATES: max and per_outlet whole numbers from 1,
-    weights numbers from 0. A block that can't be read stops the job, like topics:."""
+    no_topic_outlets a whole number from 2 (the outlets a story without a topic needs to get in),
+    weights numbers from 0, sections a number from 0 for any of SECTIONS (added to the score of its
+    stories). A block that can't be read stops the job, like topics:."""
     raw = config().get("candidates")
     if raw is None:
         raw = {}
     if not isinstance(raw, dict):
         raise ConfigError(f"news.yaml candidates: expected max:, per_outlet: and weights:, not a {type(raw).__name__}")
-    out = {**CANDIDATES, "weights": dict(CANDIDATES["weights"])}
+    out = {**CANDIDATES, "weights": dict(CANDIDATES["weights"]), "sections": dict(CANDIDATES["sections"])}
     unknown = sorted(str(k) for k in raw if k not in out)
     if unknown:
-        raise ConfigError(f"news.yaml candidates: unknown {', '.join(unknown)} (only max:, per_outlet:, weights:)")
+        raise ConfigError(f"news.yaml candidates: unknown {', '.join(unknown)} "
+                          "(only max:, per_outlet:, no_topic_outlets:, weights:, sections:)")
     for key in ("max", "per_outlet"):
         v = raw.get(key, out[key])
         if not isinstance(v, int) or isinstance(v, bool) or v < 1:
             raise ConfigError(f"news.yaml candidates: {key}: expected a whole number from 1, not {v!r}")
         out[key] = v
+    v = raw.get("no_topic_outlets", out["no_topic_outlets"])
+    if not isinstance(v, int) or isinstance(v, bool) or v < 2:
+        raise ConfigError(f"news.yaml candidates: no_topic_outlets: expected a whole number from 2, not {v!r}")
+    out["no_topic_outlets"] = v
     weights = {} if raw.get("weights") is None else raw["weights"]
     if not isinstance(weights, dict):
         raise ConfigError("news.yaml candidates: weights: expected outlets: and fresh: numbers")
@@ -171,6 +186,15 @@ def candidates_config():
         if not isinstance(v, (int, float)) or isinstance(v, bool) or not 0 <= v < float("inf"):
             raise ConfigError(f"news.yaml candidates: weights: {key}: expected a number from 0, not {v!r}")
         out["weights"][key] = float(v)
+    sections = {} if raw.get("sections") is None else raw["sections"]
+    if not isinstance(sections, dict):
+        raise ConfigError(f"news.yaml candidates: sections: expected a number for any of {', '.join(SECTIONS)}")
+    for key, v in sections.items():
+        if key not in SECTIONS:
+            raise ConfigError(f"news.yaml candidates: sections: {key!r} is not a section ({', '.join(SECTIONS)})")
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not 0 <= v < float("inf"):
+            raise ConfigError(f"news.yaml candidates: sections: {key}: expected a number from 0, not {v!r}")
+        out["sections"][key] = float(v)
     return out
 
 
@@ -225,6 +249,97 @@ def same_story(a: frozenset, b: frozenset) -> bool:
     return both >= 3 and (both / len(a | b) >= SAME_STORY or both / min(len(a), len(b)) >= 0.6)
 
 
+def fold(word: str) -> str:
+    """A word in lower case as written, folded for merge_events() a little further than words() does:
+    plurals, also "ies" ("Canaries" =
+    "Canary"), "es" after ch, sh, x and ss ("catches" = "catch"), and a doubled last letter, as
+    names are spelled both ways ("Zelenskyy" = "Zelensky")."""
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 4 and word.endswith(("ches", "shes", "xes", "sses")):
+        return word[:-2]
+    if len(word) > 4 and word.endswith("s") and not word.endswith("ss"):
+        word = word[:-1]
+    return word[:-1] if len(word) > 5 and word[-1] == word[-2] != "s" else word
+
+
+def event_words(title, summary):
+    """For merge_events(): the headline's words (folded), those of them written with a capital (names,
+    mostly), and the words of headline and summary with how often each comes (the headline twice)."""
+    head = [(fold(w.lower()), w[0].isupper()) for low, w in tokens(title) if len(low) >= 3 and low not in STOP]
+    text = [fold(w) for w in words_in_order(summary)]
+    return {w for w, _ in head}, {w for w, cap in head if cap}, Counter([w for w, _ in head] * 2 + text)
+
+
+def words_in_order(text):
+    """The words words() keeps, every time they come, as written (lower case, plurals not folded)."""
+    out = []
+    for w in WORD_RE.findall(text.lower().replace("’", "'")):
+        w = w.split("'")[0]
+        if len(w) >= 3 and w not in STOP:
+            out.append(w)
+    return out
+
+
+def merge_events(groups, rarity):
+    """Stories merged when they are the same event told in other words ("SpaceX catches Starship"
+    and "SpaceX completes first-ever spaceship capture"), which same_story() misses. Two stories are
+    one event when a headline of each shares at least two words with the other, one of them a name
+    written with a capital in both (two different elections share "presidential election", not a
+    name), and their headline and summary words are alike: a cosine of at least SAME_EVENT, each
+    word weighted by how rare it is in this fetch, so "Starshield" counts and "says" hardly does.
+    The likest pair first, then again with the merged story, until no pair is left: so the result
+    doesn't depend on which item came first. Changes groups in place; they keep their order."""
+    bags = {}
+    for n, g in enumerate(groups):
+        bags[n] = Counter()
+        for it in g:
+            bags[n].update(it["event"][2])
+
+    def unit(bag):
+        v = {w: x * rarity[w] for w, x in bag.items()}
+        size = sum(x * x for x in v.values()) ** 0.5 or 1.0
+        return {w: x / size for w, x in v.items()}
+
+    def alike(a, b):
+        """The cosine of stories a and b, or None when no headlines of theirs share a name and a word more."""
+        if not any(len(x["event"][0] & y["event"][0]) >= 2 and x["event"][0] & y["event"][0] & x["event"][1]
+                   & y["event"][1] for x in live[a] for y in live[b]):
+            return None
+        return sum(x * units[b].get(w, 0.0) for w, x in units[a].items())
+
+    live = dict(enumerate(groups))           # story number -> its items; a merged story's number goes
+    units = {n: unit(b) for n, b in bags.items()}
+    by_name = {}                             # only stories whose headlines share a name can be one event
+    for n, g in live.items():
+        for w in {w for it in g for w in it["event"][1]}:
+            by_name.setdefault(w, set()).add(n)
+    pairs = {}
+    for ns in by_name.values():
+        for a in ns:
+            for b in ns:
+                if a < b and (a, b) not in pairs:
+                    pairs[(a, b)] = alike(a, b)
+    while True:
+        ok = [(like, -a, -b) for (a, b), like in pairs.items() if like is not None and like >= SAME_EVENT]
+        if not ok:
+            break
+        _, a, b = max(ok)                   # the likest pair; a tie goes to the earliest stories
+        a, b = -a, -b
+        live[a].extend(live.pop(b))
+        bags[a].update(bags.pop(b))
+        units.pop(b)
+        units[a] = unit(bags[a])
+        pairs = {k: v for k, v in pairs.items() if b not in k}
+        for n in live:
+            if n != a:
+                k = (min(a, n), max(a, n))
+                if k in pairs or any(w in {w for it in live[n] for w in it["event"][1]}
+                                     for it in live[a] for w in it["event"][1]):
+                    pairs[k] = alike(*k)
+    groups[:] = [live[n] for n in sorted(live)]
+
+
 def section_of(feed) -> str:
     """The feed's region in news.yaml (Europe, US or World); anything else is World."""
     region = str(feed.get("region") or "World")
@@ -244,25 +359,34 @@ def items(now):
             if not title or not url.startswith("https://") or url in seen or not at or not cutoff <= at <= now:
                 continue
             seen.add(url)
-            out.append({"title": title, "url": url[:500], "summary": str(it.get("summary") or "")[:280],
+            summary = str(it.get("summary") or "")[:280]
+            out.append({"title": title, "url": url[:500], "summary": summary,
                         "outlet": str(meta.get("outlet") or name)[:40], "section": section_of(meta), "feed": name,
-                        "at": at, "order": order, "words": words(title), "tokens": tokens(title)})
+                        "at": at, "order": order, "words": words(title), "tokens": tokens(title),
+                        "event": event_words(title, summary)})
     return sorted(out, key=lambda i: i["at"], reverse=True)
 
 
-def stories(now, topics):
+def stories(now, topics, links=False):
     """Items grouped into stories, most-covered first, then newest. A story's headline comes from
     the outlet listed first in news.yaml (public broadcasters lead); its section is where most of
     its items are; its topics are those of the headlines it shows, plus those whose feeds: list a
-    feed any of its items came from."""
+    feed any of its items came from. With links, each also has "links": the link of every item in
+    it, also those the page doesn't show (a second article from one outlet), and "articles": each of
+    them with its outlet and headline, lead first, for --eval-top.
+    An item joins the first story whose headlines share enough words with its own (same_story()),
+    else it starts one; then stories that are one event are merged (merge_events())."""
+    found = items(now)
     groups = []
-    for it in items(now):
+    for it in found:
         home = next((g for g in groups if any(same_story(it["words"], o["words"]) for o in g)), None) \
             if len(it["words"]) >= 3 else None
         if home is None:
             groups.append([it])
         else:
             home.append(it)
+    seen_in = Counter(w for it in found for w in it["event"][2])
+    merge_events(groups, {w: math.log(len(found) / n) for w, n in seen_in.items()})   # 0: a word in every item
     out = []
     for g in groups:
         lead = min(g, key=lambda i: (i["order"], -i["at"].timestamp()))
@@ -270,16 +394,24 @@ def stories(now, topics):
         for it in sorted(g, key=lambda i: (i["order"], -i["at"].timestamp())):
             per_outlet.setdefault(it["outlet"], it)   # one line per outlet: its newest in its first feed
         sections = [it["section"] for it in per_outlet.values()]
+        shown = [it["tokens"] for it in per_outlet.values()]
+        tagged = topics_of(shown, topics, sorted({it["feed"] for it in g}))
+        by_keyword = topics_of(shown, topics)
         out.append({"title": lead["title"], "summary": lead["summary"], "url": lead["url"],
                     # where most of its outlets file it; a tie goes to the named place over World
                     "section": max(SECTIONS, key=lambda s: (sections.count(s), s != "World", s == lead["section"])),
-                    "topics": topics_of([it["tokens"] for it in per_outlet.values()], topics,
-                                        sorted({it["feed"] for it in g})),
+                    "topics": tagged,
+                    # those it has only as a story of a topic's feeds:, no keyword (not enough for candidates)
+                    "topics_by_feed": [t for t in tagged if t not in by_keyword],
                     "feeds": sorted({it["feed"] for it in g}),   # every feed it came from
                     "at": max(it["at"] for it in g).isoformat(timespec="seconds"),
                     "outlets": list(per_outlet),
                     "items": [{"outlet": it["outlet"], "title": it["title"], "url": it["url"],
                                "at": it["at"].isoformat(timespec="seconds")} for it in per_outlet.values()]})
+        if links:
+            out[-1]["links"] = sorted({it["url"] for it in g})
+            out[-1]["articles"] = [{"outlet": it["outlet"], "title": it["title"], "url": it["url"]}
+                                   for it in sorted(g, key=lambda i: (i["order"], -i["at"].timestamp()))]
     out.sort(key=lambda s: (len(s["outlets"]), s["at"]), reverse=True)   # most-covered first, then newest
     return out
 
@@ -295,23 +427,31 @@ def per_section(found):
 
 
 def candidates(found, cfg, fetched):
-    """The day's shortlist from all stories (not only those the sections keep): those with a topic,
-    best first, at most max. The score is weights.outlets per outlet covering the story plus
+    """The day's shortlist from all stories (not only those the sections keep): those with a topic
+    by keyword or covered by no_topic_outlets outlets or more (what many write about needs no keyword;
+    cfg without it: 2), best first, at
+    most max. A topic only from feeds: (every story of a feed) isn't enough: those feeds also carry
+    consumer tips and features. The score is weights.outlets per outlet covering the story plus
     weights.fresh x freshness (1 at fetch time, 0 at MAX_AGE_HOURS old): with outlets 1 and fresh
-    under 1, one more outlet beats any age, and the same outlets go newest first. A tie goes to
+    under 1, one more outlet beats any age, and the same outlets go newest first. sections adds its
+    number to the stories of that section (a lean towards Europe: a head start of that many points,
+    one outlet being 1 with the weights as above). A tie goes to
     the newer, then the link, so the same feeds always give the same list and scores. Exact
     fractions of the weights as written (0.1 is 1/10): a tie is a tie, not a rounding.
     per_outlet spreads the outlets: only that many stories led by one outlet (the first of its
     outlets) come in score order; the ones over it fill any room left at the end, in score order."""
     outlets, fresh = (Fraction(str(cfg["weights"][k])) for k in ("outlets", "fresh"))
+    lean = {k: Fraction(str(v)) for k, v in (cfg.get("sections") or {}).items()}
     ref, window = int(fetched.timestamp()), MAX_AGE_HOURS * 3600
 
     def at(s):
         return int(datetime.fromisoformat(s["at"]).timestamp())
 
     def score(s):
-        return outlets * len(s["outlets"]) + fresh * (1 - Fraction(ref - at(s), window))
-    ranked = sorted(((score(s), s) for s in found if s["topics"]), key=lambda p: (-p[0], -at(p[1]), p[1]["url"]))
+        return outlets * len(s["outlets"]) + fresh * (1 - Fraction(ref - at(s), window)) + lean.get(s.get("section"), 0)
+    ranked = sorted(((score(s), s) for s in found
+                     if set(s["topics"]) - set(s.get("topics_by_feed") or ())
+                     or len(s["outlets"]) >= cfg.get("no_topic_outlets", 2)), key=lambda p: (-p[0], -at(p[1]), p[1]["url"]))
     spread, over, led = [], [], {}
     for p in ranked:
         lead = p[1]["outlets"][0]
@@ -443,19 +583,174 @@ def run_eval(path):
     return 1 if wrong else 0
 
 
+# ---------- evaluation: the Top list against hand-labelled keep/drop ----------
+
+TOP_N = 10                  # the first screenful of Top on the phone
+KEEP_WORDS = {"yes": True, "keep": True, "true": True, "no": False, "drop": False, "false": False}
+
+
+def read_labels(path):
+    """{url: (keep, headline)} from a labels file (a list of stories, each with url: and keep: yes
+    or no), and how many entries were skipped for lacking either. The same link labelled both keep
+    and drop stops the run: which one is meant can't be guessed."""
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as e:
+        raise ConfigError(f"{path}: {e}") from None
+    if not isinstance(raw, list):
+        raise ConfigError(f"{path}: expected a list of stories, each with url: and keep: yes or no")
+    labels, skipped = {}, 0
+    for c in raw:
+        c = c if isinstance(c, dict) else {}
+        keep, url = c.get("keep"), c.get("url")
+        if isinstance(keep, str):
+            keep = KEEP_WORDS.get(keep.strip().lower())
+        if not isinstance(keep, bool) or not isinstance(url, str) or not url.strip():
+            skipped += 1
+            continue
+        url = url.strip()
+        if url in labels and labels[url][0] != keep:
+            raise ConfigError(f"{path}: {url} is labelled both keep and drop")
+        labels[url] = (keep, str(c.get("headline") or url))
+    return labels, skipped
+
+
+def top_as_of_fetch():
+    """The latest fetch's Top list as news-build gave it right after the fetch (now = the fetch time),
+    each story with all its links and articles: (the fetch, its time, every story, the whole ranking
+    not cut at max, the list). For --eval-top here and in news_picks.py: the same on any later day."""
+    topics, shortlist = topics_config(), candidates_config()
+    rss = latest("rss") or {}
+    fetched = parse_time(rss.get("fetched"))
+    if not fetched:
+        raise ConfigError(f"no saved rss fetch in {FEEDS_DIR / 'rss'}")
+    every = stories(fetched, topics, links=True)
+    # the whole order, not cut at max: its first max are exactly the candidates build() gives, and
+    # the rest tell how far below the cut a missed keep came
+    ranked = candidates(every, {**shortlist, "max": max(len(every), 1)}, fetched)
+    return rss, fetched, every, ranked, ranked[:shortlist["max"]]
+
+
+def label_of(story, labels) -> str:
+    """keep, drop or unlabelled: keep when any of the story's links has keep (a drop on another of its
+    articles is a copy of a story already kept), drop when only drops, unlabelled when none."""
+    got = {labels[u][0] for u in story["links"] if u in labels}
+    return "keep" if True in got else "drop" if got else "unlabelled"
+
+
+def eval_top(path):
+    """How the Top list (candidates) of the latest fetch fares against keep/drop labels: keeps,
+    drops and unlabelled in the top TOP_N and in the whole list, the keeps it misses (and why),
+    the drops it has; then the whole list with ranks, and every story grouped from several
+    articles, each article with its outlet and label, to check by hand. Ranked as of the fetch, so
+    it gives the same numbers on any later day. A story counts as labelled when any of its links
+    (every article grouped into it) has a label, and as a keep when any has keep: a drop on one of
+    its articles is then a copy of a story already kept, not the event unwanted.
+    Writes nothing; 0 unless the input can't be used."""
+    labels, skipped = read_labels(path)
+    shortlist = candidates_config()
+    rss, fetched, every, ranked, top = top_as_of_fetch()
+    rank = {s["url"]: n for n, s in enumerate(ranked, 1)}
+
+    def label(s):
+        return label_of(s, labels)
+
+    def line(s):
+        return f"{s['title']}  ({', '.join(s['outlets'])})"
+
+    kinds = ["keep", "drop", "unlabelled"]
+    rows = [(f"top {TOP_N}", Counter(label(s) for s in top[:TOP_N])), (f"all {len(top)}", Counter(label(s) for s in top))]
+    totals = Counter(label(s) for s in every)
+    matched = {u for s in every for u in s["links"]}
+    unmatched = [(u, head) for u, (_, head) in labels.items() if u not in matched]
+
+    print(f"Top as of the fetch of {rss.get('fetched')}: {len(top)} stories (max {shortlist['max']}). "
+          f"{len(labels)} labels from {path}" + (f" ({skipped} skipped: no url or no keep: yes/no)" if skipped else "")
+          + f"; labelled stories in this fetch: {totals['keep']} keep, {totals['drop']} drop.")
+    width = max(len(r[0]) for r in rows)
+    print("\n  " + " " * width + "".join(f"  {k:>10}" for k in kinds))
+    for name, n in rows:
+        print(f"  {name:<{width}}" + "".join(f"  {n[k]:>10}" for k in kinds))
+    print(f"\nKeeps in the top {TOP_N}: {rows[0][1]['keep']} of {totals['keep']}; "
+          f"in the whole list: {rows[1][1]['keep']} of {totals['keep']}.")
+    # by label, not story: the same count however the items are grouped, to compare groupings
+    first, whole = ({u for s in part for u in s["links"]} for part in (top[:TOP_N], top))
+    keeps, drops = ([u for u, (k, _) in labels.items() if k is want] for want in (True, False))
+    print(f"Labels by link (however stories are grouped): keep {len(first & set(keeps))} of {len(keeps)} in the "
+          f"top {TOP_N}, {len(whole & set(keeps))} in the whole list; drop {len(first & set(drops))} of {len(drops)} "
+          f"in the top {TOP_N}, {len(whole & set(drops))} in the whole list.")
+
+    missed = [s for s in every if label(s) == "keep" and s["url"] not in {t["url"] for t in top}]
+    missed.sort(key=lambda s: rank.get(s["url"], len(ranked) + 1))   # nearest the cut first, then no topic
+    why = {s["url"]: f"#{rank[s['url']]}, below the cut" if s["url"] in rank else
+           "topic only from feeds:" if s["topics"] else "no topic" for s in missed}
+    if missed:
+        w = max(len(v) for v in why.values())
+        print(f"\nKeeps not in the Top ({len(missed)}):", *(f"  {why[s['url']]:<{w}}  {line(s)}" for s in missed),
+              sep="\n")
+    dropped = [(n, s) for n, s in enumerate(top, 1) if label(s) == "drop"]
+    if dropped:
+        print(f"\nDrops in the Top ({len(dropped)}):", *(f"  #{n:<3} {line(s)}" for n, s in dropped), sep="\n")
+    blank = [(n, s) for n, s in enumerate(top, 1) if label(s) == "unlabelled"]
+    if blank:
+        print(f"\nUnlabelled in the Top ({len(blank)}):", *(f"  #{n:<3} {line(s)}" for n, s in blank), sep="\n")
+    print(f"\nThe list ({len(top)}), best first:",
+          *(f"  #{n:<3} {label(s):<10} {s['score']:.3f}  {s['section']:<6}  {line(s)}" for n, s in enumerate(top, 1)),
+          sep="\n")
+    merged = sorted((s for s in every if len(s["links"]) > 1), key=lambda s: (rank.get(s["url"], len(ranked) + 1),
+                                                                          s["url"]))
+
+    def mark(u):
+        return "keep" if labels.get(u, (None,))[0] is True else "drop" if u in labels else "-"
+    if merged:
+        print(f"\nStories grouped from several articles ({len(merged)}), each article with its label:")
+        for s in merged:
+            where = f"#{rank[s['url']]}" + ("" if rank[s["url"]] <= len(top) else ", below the cut") \
+                if s["url"] in rank else "not a candidate"
+            print(f"  {where}: {label(s)}, {len(s['outlets'])} outlet{'s' * (len(s['outlets']) > 1)}, "
+                  f"{len(s['links'])} articles", *(f"      {mark(a['url']):<4}  {a['outlet']}: {a['title']}"
+                                                  for a in s["articles"]), sep="\n")
+    if unmatched:
+        print(f"\nLabels that match no story in this fetch ({len(unmatched)}): from another fetch, or more than "
+              f"{MAX_AGE_HOURS} hours old at it", *(f"  {head}" for _, head in unmatched), sep="\n")
+    return 0
+
+
+def quiet_on_cut_output(run):
+    """run(), and when the reader of stdout goes away (news.py --eval-top ... | head), stop quietly:
+    no traceback, exit 0 (what was read is all that was wanted). The rest of stdout goes to /dev/null,
+    so the flush at exit can't fail again."""
+    try:
+        try:
+            return run()
+        finally:                  # also on sys.exit(): what's left in the buffer goes now, not at exit
+            sys.stdout.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.exit(0)
+
+
 def main():
+    quiet_on_cut_output(_main)
+
+
+def _main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     one = ap.add_mutually_exclusive_group()
     one.add_argument("--print", action="store_true", help="print only; write nothing")
     one.add_argument("--export-eval", metavar="FILE", type=Path,
                      help="write the latest fetch's stories as test cases to label by hand")
     one.add_argument("--eval", metavar="FILE", type=Path, help="check the current topics against labelled stories")
+    one.add_argument("--eval-top", metavar="FILE", type=Path,
+                     help="count keep/drop labels in the Top list of the latest fetch, ranked as of the fetch")
     args = ap.parse_args()
     try:
         if args.export_eval:
             return export_eval(args.export_eval)
         if args.eval:
             sys.exit(run_eval(args.eval))
+        if args.eval_top:
+            sys.exit(eval_top(args.eval_top))
     except ConfigError as e:
         sys.exit(str(e))
     try:

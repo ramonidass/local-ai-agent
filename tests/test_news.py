@@ -153,6 +153,10 @@ assert st["DR Congo sentences soldiers"]["topics"] == ["Space"]
 assert st["US, Russia and Ukraine start talks in Abu Dhabi"]["topics"] == ["Politics", "Space"]   # DW is one of its feeds
 assert st["Jim Jordan picked as next House GOP leader"]["topics"] == ["Politics"]
 assert news.topics_of([], {"T": ((), (), frozenset({"DW"}))}, ["BBC Europe", "DW"]) == ["T"]
+# topics_by_feed: those a story has only through feeds:, no keyword (not enough for the candidates)
+assert st["DR Congo sentences soldiers"]["topics_by_feed"] == ["Space"]
+assert st["US, Russia and Ukraine start talks in Abu Dhabi"]["topics_by_feed"] == ["Space"]   # Politics by keyword
+assert st["Jim Jordan picked as next House GOP leader"]["topics_by_feed"] == []
 # hackernews: topic: names the chip that also shows Hacker News; none by default
 assert news.build(now)["hn_topic"] is None
 (d / "config" / "news.yaml").write_text(FEEDS + TOPICS + "hackernews: {top: 30, topic: Space}\n")
@@ -188,6 +192,14 @@ bad = {
     "candidates: {weights: {fresh: -1}}": "candidates: weights: fresh: expected a number from 0, not -1",
     "candidates: {weights: {fresh: high}}": "candidates: weights: fresh: expected a number from 0, not 'high'",
     "candidates: {weights: {fresh: .inf}}": "candidates: weights: fresh: expected a number from 0, not inf",
+    "candidates: {sections: [Europe]}": "candidates: sections: expected a number for any of Europe, US, World",
+    "candidates: {sections: {Asia: 1}}": "candidates: sections: 'Asia' is not a section (Europe, US, World)",
+    "candidates: {sections: {Europe: -0.5}}": "candidates: sections: Europe: expected a number from 0, not -0.5",
+    "candidates: {sections: {Europe: yes}}": "candidates: sections: Europe: expected a number from 0, not True",
+    "candidates: {colour: red}": "candidates: unknown colour (only max:, per_outlet:, no_topic_outlets:, "
+                                 "weights:, sections:)",
+    "candidates: {no_topic_outlets: 1}": "candidates: no_topic_outlets: expected a whole number from 2, not 1",
+    "candidates: {no_topic_outlets: 2.5}": "candidates: no_topic_outlets: expected a whole number from 2, not 2.5",
 }
 for block, message in bad.items():
     (d / "config" / "news.yaml").write_text(FEEDS + block + "\n")
@@ -209,7 +221,8 @@ print("BAD CONFIG OK")
 # 8) the real news.yaml loads, and its topics tag what they should (and not the figurative uses)
 news.CONFIG_DIR = here.parent / "state-feeds"
 real = news.topics_config()
-assert news.candidates_config() == {"max": 40, "per_outlet": 8, "weights": {"outlets": 1.0, "fresh": 0.5}}
+assert news.candidates_config() == {"max": 40, "per_outlet": 8, "no_topic_outlets": 2,
+                                   "weights": {"outlets": 1.0, "fresh": 0.5}, "sections": {"Europe": 0.25}}
 for headline, tagged in [
         ("Rocket attack hits Kharkiv apartment block", ["War and security"]),
         ("SpaceX rocket reaches orbit", ["Space"]), ("Price war hits French supermarkets", []),

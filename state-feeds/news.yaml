@@ -83,16 +83,23 @@ topics:
               landslide win, by a landslide, election landslide, avalanche of, Carolina Hurricanes]
 
 # Candidates: the day's shortlist in news.json, beside the sections (which keep their own limit).
-# Only stories with a topic. Best first by score (on each candidate): weights.outlets per outlet
-# covering the story, plus weights.fresh x freshness (1 at fetch time, 0 at 36 hours old). With
-# outlets 1 and fresh under 1, one more outlet beats any age and the same outlets go newest first.
+# Stories with a topic by keyword, and stories no_topic_outlets or more outlets cover, topic or not
+# (3 tried on 2026-11-16: the same keeps, two more drops, so 2). A topic that
+# comes only from a topic's feeds: above isn't enough (those feeds also carry consumer tips and
+# features). Best first by score (on each candidate): weights.outlets per outlet covering the story,
+# plus weights.fresh x freshness (1 at fetch time, 0 at 36 hours old), plus sections: for a story
+# in that section. With outlets 1 and fresh under 1, one more outlet beats any age and the same
+# outlets go newest first; Europe 0.25 with fresh 0.5 counts a European story as 18 hours newer.
 # A tie goes to the newer, then the link. per_outlet spreads the outlets: only that many stories led
 # by one outlet (it gives the headline: the first listed above) come in score order; the ones over
 # it fill any room left at the end, also in score order.
+# Check a change against hand labels with news.py --eval-top (see its --help).
 candidates:
   max: 40
   per_outlet: 8
+  no_topic_outlets: 2
   weights: {outlets: 1, fresh: 0.5}
+  sections: {Europe: 0.25}
 
 
 # GDELT counts coverage across thousands of outlets: good for "what is everyone writing about".

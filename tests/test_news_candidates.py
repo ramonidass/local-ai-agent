@@ -28,11 +28,19 @@ def titles(found, c=None):
     return [s["title"] for s in news.candidates(found, c or cfg(), FETCHED)]
 
 
-# 1) more outlets first, however old; the same outlets newest first; no topic, no candidate
+# 1) more outlets first, however old; the same outlets newest first; no topic: only if several outlets
+#    cover it (what many write about needs no keyword), never from one outlet alone
 found = [story("one-new", ["BBC"], "20:00"), story("two-old", ["BBC", "DW"], "10:00"),
          story("three-oldest", ["DW", "BBC", "Fox News"], "00:01"), story("two-new", ["DW", "BBC"], "12:00"),
-         story("untagged", ["BBC", "DW", "Fox News", "NPR"], "21:00", topics=())]
-assert titles(found) == ["three-oldest", "two-new", "two-old", "one-new"], titles(found)
+         story("untagged", ["BBC", "DW", "Fox News", "NPR"], "21:00", topics=()),
+         story("untagged-alone", ["BBC"], "23:00", topics=())]
+assert titles(found) == ["untagged", "three-oldest", "two-new", "two-old", "one-new"], titles(found)
+# no_topic_outlets: how many outlets a story without a topic needs (2 unless set)
+pair = story("untagged-pair", ["BBC", "DW"], "22:00", topics=())
+assert titles(found + [pair])[:3] == ["untagged", "three-oldest", "untagged-pair"]
+assert "untagged-pair" not in titles(found + [pair], cfg(no_topic_outlets=3))
+assert titles(found, cfg(no_topic_outlets=4))[0] == "untagged" and "untagged" not in titles(found, cfg(no_topic_outlets=5))
+found = found[:4]
 # the weights: fresh 6 is a point per 6 hours, so 20 hours newer beats two more outlets; outlets 0: newest first
 assert titles(found, cfg(weights={"fresh": 6})) == ["one-new", "two-new", "two-old", "three-oldest"]
 assert titles(found, cfg(weights={"outlets": 0})) == ["one-new", "two-new", "two-old", "three-oldest"]
@@ -87,6 +95,29 @@ for _ in range(50):
     rnd.shuffle(many)
     assert titles(many, cfg(per_outlet=3)) == titles(sorted(many, key=lambda s: s["url"]), cfg(per_outlet=3))
 print("TIES OK")
+
+# 4b) a topic only from feeds: (every story of a feed, no keyword) is not enough alone; a keyword
+#     topic beside it is, and so are several outlets
+fed = [{**story("feed-only", ["Sifted"], "20:00", topics=("Tech",)), "topics_by_feed": ["Tech"]},
+       {**story("feed-and-keyword", ["Sifted"], "19:00", topics=("Tech", "War")), "topics_by_feed": ["Tech"]},
+       {**story("feed-only-covered", ["Sifted", "DW"], "01:00", topics=("Tech",)), "topics_by_feed": ["Tech"]}]
+assert titles(fed) == ["feed-only-covered", "feed-and-keyword"], titles(fed)
+print("FEED TOPICS OK")
+
+# 4c) sections: adds its number to the score of that section's stories: a lean, not a wall; one
+#     more outlet still beats it (under 1 - fresh); no sections: is no lean
+def placed(url, outlets, at, section):
+    return {**story(url, outlets, at), "section": section}
+lean = [placed("world-new", ["BBC"], "20:00", "World"), placed("europe-old", ["DW"], "08:00", "Europe"),
+        placed("europe-oldest", ["DW"], "00:00", "Europe"), placed("us-two", ["NPR", "Fox News"], "00:00", "US")]
+assert titles(lean) == ["us-two", "world-new", "europe-old", "europe-oldest"]
+europe = cfg(sections={"Europe": 0.25})            # with fresh .5: a European story counts as 18 hours newer
+assert titles(lean, europe) == ["us-two", "europe-old", "world-new", "europe-oldest"], titles(lean, europe)
+got = {s["title"]: s["score"] for s in news.candidates(lean, europe, FETCHED)}
+assert got["europe-old"] == 1.5278 and got["world-new"] == 1.4444     # 1 + .5 x 20/36 + .25 (16 h old); 1 + .5 x 32/36
+assert titles(lean, cfg(sections={"Europe": 0.49}))[0] == "us-two"
+assert titles(lean, cfg(sections={"US": 0.25})) == titles(lean)       # a lean only moves its own section
+print("SECTIONS OK")
 
 # 5) the job: news.yaml sets the cap; candidates are an extra list beside the sections, which
 #    keep their own limit; two runs (different hash seeds, different moments) write the same list
