@@ -27,6 +27,74 @@ feeds:
   - {name: Sifted,          region: Europe, topic: Tech,     url: "https://sifted.eu/feed"}                         # European tech and startups
   - {name: SpaceNews,       region: World,  topic: Space,    url: "https://spacenews.com/feed/"}
 
+# Topics tag each story on the News tab (news.py; no network, no model). A story is in a topic when
+# one of its headlines has an include keyword and no exclude keyword; it can be in several or none.
+# Case and plurals don't matter ("tariffs" = "Tariff"); words match whole ("war" is not in "award").
+# A keyword of several words is a phrase: next to each other, in order, small words included, so
+# "Bank of England" is not in "England's banks". A short word in capitals matches only as written:
+# "US" is in "US troops" but not in "tell us", "AI" not in "Ai Weiwei". "U.S." matches "U.S.".
+# feeds: (optional) puts every story from those feeds (names as above) in the topic, keywords or not:
+# the specialist feeds, since the tab's sections are regions only (Europe, US, World).
+# A topics: block news.py can't read stops the run with a message.
+topics:
+  Politics:
+    include: [election, parliament, prime minister, chancellor, president, government, minister,
+              European Commission, EU, G7, White House, Congress, Senate, Supreme Court, Kremlin,
+              NATO, sanctions, tariffs, referendum, coalition, Democrats, Republicans, GOP, Labour,
+              Tory, Tories]
+    exclude: [football, cricket, rugby, Eurovision, Oscars]
+  Tech and AI:
+    include: [AI, artificial intelligence, OpenAI, ChatGPT, chatbot, Anthropic, Nvidia, semiconductor,
+              chips, 5G, cybersecurity, hackers, ransomware, data breach, antitrust, smartphone, iPhone,
+              Google, Microsoft, software, startup, robot, quantum computing, deepfake]
+    exclude: [fish, blue chip]                 # fish and chips, blue-chip stocks
+    feeds: [BBC Technology, Ars Technica, Sifted]
+  Space:
+    include: [SpaceX, NASA, European Space Agency, ESA, rocket, satellite, astronaut, spacecraft,
+              space station, spacewalk, telescope, asteroid, lunar, moon, Mars, orbit, Starship,
+              Blue Origin, Artemis]
+    exclude: [missile, rocket attack, rocket fire, rockets fired, Bruno, Mars bar]   # wars; the singer
+    feeds: [SpaceNews]
+  Economy:
+    include: [economy, economic, inflation, recession, GDP, interest rates, central bank,
+              Federal Reserve, Fed chair, Fed officials, Fed rate, Bank of England, ECB, unemployment,
+              jobs report, wages, cost of living, rate cut, rate hike, mortgage, stock market,
+              Wall Street, FTSE, bond yields, tariffs, trade war, trade deal]    # "Fed" alone: "fed up"
+    exclude: [economy class, football]
+    feeds: [BBC Business]
+  War and security:
+    include: [war, wars, Ukraine, Ukrainian, Zelensky, Putin, Russian attack, Russian strike,
+              Russian drone, Gaza, Israel, Hamas, Hezbollah, West Bank, Houthi, NATO, missile,
+              drone strike, drone attack, airstrike, air strike, rocket attack, rocket fire, shelling,
+              ceasefire, truce, invasion, troops, soldiers, military, army, Pentagon, defence minister,
+              defence secretary, defence spending, Ministry of Defence, Security Council,
+              national security, nuclear weapons, hostages, terror attack, terrorism, terrorist]
+    exclude: [price war, bidding war, trade war, culture war, culture wars, Star Wars, war of words,
+              Salvation Army, Eurovision]
+  Disasters and climate:
+    include: [flood, flooding, flash floods, storm, tropical storm, hurricane, typhoon, cyclone, tornado,
+              wildfire, bushfire, forest fire, earthquake, quake, aftershock, tsunami, volcano,
+              landslide, avalanche, heatwave, heat wave, drought, extreme weather, weather warning,
+              climate change, climate crisis, global warming, climate summit, COP30, net zero,
+              carbon emissions]
+    # figurative: "flood of complaints", "storm of criticism", "protesters storm the", "wins by a landslide"
+    exclude: [flood of, flood the zone, flooding the zone, political storm, storm of, media storm,
+              perfect storm, storm out, storms out, storm the, protesters storm, landslide victory,
+              landslide win, by a landslide, election landslide, avalanche of, Carolina Hurricanes]
+
+# Candidates: the day's shortlist in news.json, beside the sections (which keep their own limit).
+# Only stories with a topic. Best first by score (on each candidate): weights.outlets per outlet
+# covering the story, plus weights.fresh x freshness (1 at fetch time, 0 at 36 hours old). With
+# outlets 1 and fresh under 1, one more outlet beats any age and the same outlets go newest first.
+# A tie goes to the newer, then the link. per_outlet spreads the outlets: only that many stories led
+# by one outlet (it gives the headline: the first listed above) come in score order; the ones over
+# it fill any room left at the end, also in score order.
+candidates:
+  max: 40
+  per_outlet: 8
+  weights: {outlets: 1, fresh: 0.5}
+
+
 # GDELT counts coverage across thousands of outlets: good for "what is everyone writing about".
 # Off for now (2026-11-10): it answered 429 "one request every 5 seconds" even to a first request,
 # probably because of a shared VPN address. Remove the # signs to
@@ -45,3 +113,4 @@ feeds:
 
 hackernews:
   top: 30
+  topic: Tech and AI          # the News tab also shows Hacker News under this topic (and under Top)
