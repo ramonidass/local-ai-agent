@@ -1,7 +1,9 @@
 [Unit]
 Description=Morning brief (one run)
 Wants=ollama.service
-After=ollama.service
+# If news-picks is still running at 07:55, wait for it: the page's Top stories card shows its picks.
+# (The brief itself never reads them: untrusted text, out of brief.md.)
+After=ollama.service news-picks.service
 
 [Container]
 ContainerName=morning-brief

@@ -1,0 +1,32 @@
+[Unit]
+Description=News picks: the local model's 5 to 7 stories from the Top list (one run, Ollama only)
+# Started by news-build (its OnSuccess=), so after every good fetch: 07:35 and 18:00. morning-brief
+# (07:55) is ordered after it. Needs Ollama; if Ollama is busy (email triage) or slow past
+# PICKS_TIMEOUT, the page gets the top of the list and the journal says why.
+Wants=ollama.service
+After=ollama.service
+
+[Container]
+ContainerName=news-picks
+Image=agent-jobs.build
+Exec=/app/news_picks.py
+# Only picks.network: Ollama is the one other container on it. No mail bridge, ntfy, page or internet.
+Network=picks.network
+UserNS=keep-id
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=all
+# Reads only the list (news.json, read-only); writes only its own folder, web/picks/, which the page
+# reads. It never sees the rest of web/ (mail, the brief's data) or agent.db.
+Volume=%h/agent/data/web/news.json:/in/news.json:ro,z
+Volume=%h/agent/data/web/picks:/out:z
+Environment=NEWS_JSON=/in/news.json PICKS_JSON=/out/news-picks.json
+Environment=OLLAMA_URL=http://ollama:11434/api/chat MODEL=qwen3.5:9b PICKS_TIMEOUT=180
+# Who the picks are for: the model reads this to say why a story matters.
+Environment="NEWS_ABOUT=I live in Europe. Europe first, then world news, tech and science."
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/mkdir -p %h/agent/data/web/picks
+# PICKS_TIMEOUT plus starting the container and loading the model, with room to spare.
+TimeoutStartSec=10min

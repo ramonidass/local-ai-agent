@@ -1,0 +1,4 @@
+# Internal network for news-picks and Ollama alone: news-picks can ask the model for the day's picks
+# and reach nothing else, not the mail bridge, ntfy, the page or the proxy (so no internet).
+[Network]
+Internal=true

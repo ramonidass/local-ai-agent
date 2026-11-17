@@ -1,5 +1,7 @@
 [Unit]
 Description=News: stories grouped from the fetched feeds (one run, no network)
+# Then the local model's picks from the new Top list (its own job: it needs Ollama, this has no network).
+OnSuccess=news-picks.service
 
 [Container]
 ContainerName=news-build

@@ -25,7 +25,7 @@ if ! curl -fsS -o /dev/null -m 15 https://mail.proton.me; then
   echo "the server can't reach Proton either (Wi-Fi, router or Proton): nothing to repair here"
   exit 0
 fi
-if systemctl --user -q is-active email-triage email-digest morning-brief; then
+if systemctl --user -q is-active email-triage email-digest morning-brief news-picks; then
   echo "a job is running: trying again on the next check"
   exit 0
 fi
