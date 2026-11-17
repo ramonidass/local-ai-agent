@@ -9,3 +9,13 @@ data/
 state.json
 health.json
 .env
+
+# Generated and dependency folders
+.venv/
+venv/
+node_modules/
+build/
+dist/
+htmlcov/
+.coverage
+.pytest_cache/
