@@ -838,6 +838,8 @@ a.story-title:hover, a.story-link:hover { text-decoration: underline; }
 .story-more > summary::-webkit-details-marker { display: none; }
 .story-more > summary::after { content: " ›"; color: var(--muted); }
 .story-more[open] > summary::after { content: " ⌄"; }
+.topic-chips { padding-top: 0; }
+.topic-chips[hidden] { display: none; }
 .outlet-count { padding: 2px 8px; border-radius: 999px; font-weight: 700; font-size: 0.75rem; color: var(--accent); background: var(--accent-soft); }
 .story-more .mk-lines { margin-top: 4px; padding-left: 10px; border-left: 2px solid var(--border); }
 .brief-stories { display: grid; }

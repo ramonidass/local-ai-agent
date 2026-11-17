@@ -11,6 +11,7 @@ const MARKET_PERIODS = [
 const MARKETS_PERIOD_KEY = "agent.marketsPeriod";
 const MARKETS_MODE_KEY = "agent.marketsMode";
 const NEWS_SECTION_KEY = "agent.newsSection";
+const NEWS_TOPIC_KEY = "agent.newsTopic";
 const RULE_LABELS = {
   earnings: "Results", earnings_move: "After results", big_day: "Big day", big_week: "Big week",
   high52: "52-week high", low52: "52-week low", trend200: "Trend", vs_market: "vs S&P 500",
@@ -21,7 +22,7 @@ const ALERTS_SHOWN = 5;
 const NEWS_SHOWN = 15;
 
 const world = { markets: null, news: null, period: "d1", mode: "overview", open: new Set(), allAlerts: false,
-  section: "top", newsShown: NEWS_SHOWN, marketsDrawn: "", newsDrawn: "" };
+  section: "top", topic: "all", newsShown: NEWS_SHOWN, marketsDrawn: "", newsDrawn: "" };
 
 // ---------- numbers ----------
 
@@ -521,10 +522,28 @@ function newsSections() {
   return [["top", "Top"]].concat(((n && n.sections) || []).map((s) => [s, s]));
 }
 
-// Top: what several outlets cover, most-covered first; on a quiet day the newest from Europe, the US
-// and the world fill it up.
+// A list from news.json, or none: a news.json from before topics or candidates
+// lacks them, and the tab then works as it did.
+function newsList(key) {
+  const v = world.news && world.news[key];
+  return Array.isArray(v) ? v : [];
+}
+
+function newsTopics() {
+  return newsList("topics").filter((t) => typeof t === "string");
+}
+
+function inTopic(s, topic) {
+  return topic === "all" || (Array.isArray(s.topics) && s.topics.includes(topic));
+}
+
+// Top: the day's candidates in news.py's order (most-covered, then newest, outlets spread). Without
+// them, what several outlets cover, most-covered first; on a quiet day the newest from Europe, the
+// US and the world fill it up.
 function topStories(limit) {
-  const stories = (world.news && world.news.stories) || [];
+  const picked = newsList("candidates");
+  if (picked.length) return picked.slice(0, limit);
+  const stories = newsList("stories");
   const top = stories.filter((s) => s.outlets.length > 1).slice(0, limit);
   if (top.length < limit) {
     const rest = stories.filter((s) => s.outlets.length === 1 && ["Europe", "US", "World"].includes(s.section))
@@ -579,46 +598,81 @@ function hackerNewsCard(limit) {
   return card;
 }
 
+// A row of chips; the pressed one is `current`. counts: {id: number} shown after the label.
+function newsChips(box, options, current, counts, onPick) {
+  box.replaceChildren();
+  for (const [id, label] of options) {
+    const b = el("button", "chip", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(current === id));
+    if (counts && id in counts) b.append(el("span", null, String(counts[id])));
+    b.addEventListener("click", () => {
+      onPick(id);
+      world.newsShown = NEWS_SHOWN;
+      drawNews(true);
+      window.scrollTo(0, 0);
+    });
+    box.append(b);
+  }
+}
+
 function drawNews(force) {
   const n = world.news;
   const body = document.getElementById("news-body");
   const chips = document.getElementById("news-filters");
+  const topicChips = document.getElementById("news-topics");
   const count = document.getElementById("news-count");
   if (!n || !(n.stories || []).length) {
     chips.replaceChildren();
+    topicChips.replaceChildren();
+    topicChips.hidden = true;
     count.textContent = "";
     body.replaceChildren(el("p", "card muted empty", "No news yet. It arrives with the next fetch (07:35 and 18:00)."));
     return;
   }
   const sections = newsSections();
   if (!sections.some(([id]) => id === world.section)) world.section = "top";
-  const key = `${n.generated}|${world.section}|${world.newsShown}`;
+  const topics = newsTopics();
+  if (!topics.includes(world.topic)) world.topic = "all";
+  const key = `${n.generated}|${world.section}|${world.topic}|${world.newsShown}`;
   if (!force && key === world.newsDrawn) return; // keeps an opened story open across refreshes
   world.newsDrawn = key;
-  chips.replaceChildren();
-  for (const [id, label] of sections) {
-    const b = el("button", "chip", label);
-    b.type = "button";
-    b.setAttribute("aria-pressed", String(world.section === id));
-    if (id !== "top") b.append(el("span", null, String(n.stories.filter((s) => s.section === id).length)));
-    b.addEventListener("click", () => {
-      world.section = id;
-      world.newsShown = NEWS_SHOWN;
-      store(NEWS_SECTION_KEY, id);
-      drawNews(true);
-      window.scrollTo(0, 0);
-    });
-    chips.append(b);
-  }
+  const sectionCounts = {};
+  for (const [id] of sections.slice(1)) sectionCounts[id] = n.stories.filter((s) => s.section === id).length;
+  newsChips(chips, sections, world.section, sectionCounts, (id) => {
+    world.section = id;
+    store(NEWS_SECTION_KEY, id);
+  });
   count.textContent = `${n.outlets.length} outlets · ${ago(n.fetched)}`;
   const top = world.section === "top";
-  const all = top ? topStories(10) : n.stories.filter((s) => s.section === world.section);
+  const picked = top && newsList("candidates").length > 0;
+  // the section picks the stories, the topic narrows them
+  const pool = top ? topStories(picked ? Infinity : 10) : n.stories.filter((s) => s.section === world.section);
+  const topicCounts = { all: pool.length };
+  for (const t of topics) topicCounts[t] = pool.filter((s) => inTopic(s, t)).length;
+  // topics with nothing here are left out; the chosen one stays, even at 0, so you can switch back
+  const shownTopics = topics.filter((t) => topicCounts[t] > 0 || t === world.topic);
+  topicChips.hidden = shownTopics.length === 0;
+  newsChips(topicChips, [["all", "All topics"]].concat(shownTopics.map((t) => [t, t])), world.topic, topicCounts, (id) => {
+    world.topic = id;
+    store(NEWS_TOPIC_KEY, id);
+  });
+  const all = pool.filter((s) => inTopic(s, world.topic));
   const shown = all.slice(0, world.newsShown);
+  const about = world.topic === "all" ? "" : ` about ${world.topic}`;
   body.replaceChildren();
-  if (top) body.append(el("p", "muted stats-note", "Stories several outlets are covering, most-covered first. Open one to compare how each tells it."));
-  const list = el("div", "mk-list");
-  for (const s of shown) list.append(storyNode(s, top));
-  body.append(list);
+  if (top) {
+    body.append(el("p", "muted stats-note", picked
+      ? "Today's shortlist: stories with a topic, most-covered first, then the newest, and only a few led by one outlet. Open one to compare how each tells it."
+      : "Stories several outlets are covering, most-covered first. Open one to compare how each tells it."));
+  }
+  if (!all.length) {
+    body.append(el("p", "card muted empty", `Nothing${about} in ${top ? "the top stories" : world.section} from the last fetch.`));
+  } else {
+    const list = el("div", "mk-list");
+    for (const s of shown) list.append(storyNode(s, top));
+    body.append(list);
+  }
   if (all.length > shown.length) {
     const more = el("button", "task-more", `Show ${Math.min(NEWS_SHOWN, all.length - shown.length)} more`);
     more.type = "button";
@@ -627,12 +681,14 @@ function drawNews(force) {
       drawNews(true);
     });
     body.append(more);
-  } else {
-    body.append(el("p", "muted list-end", top ? "Those are today's top stories. The sections above have the rest."
-    : `That's everything in ${world.section} from the last fetch.`));
+  } else if (all.length) {
+    body.append(el("p", "muted list-end", top ? `Those are today's top stories${about}. The sections above have the rest.`
+    : `That's everything${about} in ${world.section} from the last fetch.`));
   }
-  if (top || world.section === "Tech") {
-    const hn = hackerNewsCard(top ? 5 : 15);
+  // Hacker News: 15 under its topic (hackernews: topic: in news.yaml), 5 under Top with all topics
+  const hnTopic = typeof n.hn_topic === "string" && world.topic === n.hn_topic;
+  if (hnTopic || (top && world.topic === "all")) {
+    const hn = hackerNewsCard(hnTopic ? 15 : 5);
     if (hn) body.append(hn);
   }
   const failed = (n.failed_feeds || []).concat((n.fetch && n.fetch.failed) || []);
@@ -679,4 +735,5 @@ function initWorld() {
   if (MARKET_PERIODS.some(([id]) => id === store(MARKETS_PERIOD_KEY))) world.period = store(MARKETS_PERIOD_KEY);
   world.mode = store(MARKETS_MODE_KEY) === "calendar" ? "calendar" : "overview";
   world.section = store(NEWS_SECTION_KEY) || "top";
+  world.topic = store(NEWS_TOPIC_KEY) || "all";
 }
