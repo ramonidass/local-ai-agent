@@ -25,8 +25,9 @@ cloud service. Everything here, the language model included, runs locally.
   News and a list of RSS feeds (Europe first, then the US and the world). Rules in code, not the
   model, decide what counts as an alert: a move far outside a stock's usual range, a 52-week high or
   low, a sector beating or trailing the S&P 500, earnings above or below estimates. The same story
-  from several outlets is grouped into one, with each outlet's headline a tap away. No buy or sell
-  suggestions, ever.
+  from several outlets is grouped into one, with each outlet's headline a tap away. The local model
+  then picks 5 to 7 stories from the day's Top list, with a line on why each matters; code checks
+  its answer and falls back to the top of the list. No buy or sell suggestions, ever.
 - **A small web page** for reading all of this on the phone, because a long notification is hard
   to read. Tapping a push opens it. Five tabs: Brief (today only: tasks, wins and what's slipping,
   a small markets table, top stories), Emails, Stats (this week's goals and time, then the long
@@ -56,22 +57,26 @@ Everything is a rootless Podman container managed by systemd (Quadlet files), on
         │              │              │             │            │
    hydroxide      email-triage    morning-brief   ollama       ntfy
   (IMAP bridge)   email-digest    (one-shot)      (model)    (pushes)
-                  (one-shot jobs)                               │
-                                                              caddy ── ports 8090 / 8088
-                                                          (socket-activated, no internet)
-                                                                │
+                  (one-shot jobs)                    │          │
+                                     news-picks ─────┘        caddy ── ports 8090 / 8088
+                         (picks network, internal:        (socket-activated, no internet)
+                          only news-picks and ollama)           │
                                                      phone, over WireGuard only
 ```
 
 A few decisions that shaped it:
 
-- **Three networks.** `agent` is internal: containers on it can talk to each other and nothing else.
+- **Four networks.** `agent` is internal: containers on it can talk to each other and nothing else.
   Only the proxy also sits on `egress`, and from `agent` Squid refuses anything that isn't Proton.
   The fetch job sits alone on a third internal network, `fetch`, which Squid lets reach only the
   market and news hosts; it can't see the mail bridge, the model or the page. The jobs that turn
-  its raw data into the Markets and News tabs run with no network at all.
+  its raw data into the Markets and News tabs run with no network at all. The one that asks the
+  model for the day's news picks, `news-picks`, shares a fourth internal network, `picks`, with
+  Ollama alone, and sees only the list it picks from.
 - **Fetched text is untrusted, like email.** Headlines never go into the brief's text (a chat
   model with tools reads it); the page shows them as plain text and only links `https://` addresses.
+  The model's lines about the news picks are untrusted too (it read the headlines): checked by
+  code, shown as plain text, never in the brief's text.
   API keys are Podman secrets, sent in headers where the API allows, and scrubbed from saved files.
 - **No published ports.** Caddy is started by a systemd socket (`caddy.socket`), so the ports are
   opened on the host by systemd and handed in. Caddy itself has no internet either.
@@ -89,10 +94,12 @@ A few decisions that shaped it:
 
 | Path | What it is |
 |---|---|
-| `agent-jobs/` | The Python jobs: `triage.py` (sorting, pushes, digest), `brief.py` (morning brief), `fetch.py` (market data and feeds), `markets.py` (closes, earnings, alert rules), `news.py` (stories grouped across outlets), `agentdb.py` (SQLite record, page data, stats) and their container |
+| `agent-jobs/` | The Python jobs: `triage.py` (sorting, pushes, digest), `brief.py` (morning brief), `fetch.py` (market data and feeds), `markets.py` (closes, earnings, alert rules), `news.py` (stories grouped across outlets), `news_picks.py` (the model's picks from the Top list), `agentdb.py` (SQLite record, page data, stats) and their container |
 | `quadlets/` | Podman Quadlet units: networks, containers, the job image build |
 | `timers/` | systemd user timers for triage, digest, brief and fetch, and the network self-check |
 | `bin/agent-net-check.sh` | Restarts all containers if the proxy can't reach Proton but the host can (a stale rootless network after a reboot) |
+| `bin/check-picks.sh` | PASS/FAIL checks that news-picks ran, on its own network, reaching Ollama and nothing else |
+| `bin/agent-backup.sh`, `bin/agent-restore.sh` | Save what an update changes (files, units, the job image) and put it back |
 | `caddy/` | `Caddyfile` and `caddy.socket` |
 | `egress-proxy/` | Squid config with the Proton and fetch allowlists |
 | `hydroxide/`, `bridge/` | Two ways to get IMAP from Proton: [hydroxide](https://codeberg.org/emersion/hydroxide) (free) or the official Bridge (needs a paid plan) |
@@ -125,7 +132,8 @@ pip install -r agent-jobs/requirements.txt
 for f in tests/test_*.py; do PYTHONPATH=agent-jobs python3 "$f" > /dev/null && echo "ok  $f" || echo "FAIL $f"; done
 ```
 
-They use fake IMAP, ntfy and Ollama servers, so they need no accounts or network.
+They use fake IMAP, ntfy and Ollama servers, so they need no accounts or network. The page test
+(`test_news_picks_page.py`) also needs Node; without it, it says so and skips.
 
 ## Limits and trade-offs
 
